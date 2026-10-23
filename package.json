@@ -1,0 +1,13 @@
+{
+  "name": "qr-terror-evento",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Sistema QR de nombres y frases de terror para proyeccion en vivo",
+  "main": "server.js",
+  "scripts": { "start": "node server.js" },
+  "engines": { "node": ">=20" },
+  "dependencies": {
+    "express": "^4.21.2",
+    "socket.io": "^4.8.1"
+  }
+}

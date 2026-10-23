@@ -1,0 +1,72 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Proyección de terror</title>
+<script src="/socket.io/socket.io.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+<style>
+*{box-sizing:border-box}html,body{margin:0;width:100%;height:100%;overflow:hidden;background:#050303;color:white;font-family:Georgia,'Times New Roman',serif}
+body{background:radial-gradient(ellipse at center,#260707 0%,#100404 42%,#020202 100%)}
+.noise{position:absolute;inset:0;pointer-events:none;opacity:.17;background-image:radial-gradient(#ff5555 0.6px,transparent .6px);background-size:7px 7px}
+.stage{position:relative;width:100vw;height:100vh;display:flex;align-items:center;justify-content:center;text-align:center;padding:4vw}
+#waiting,#reveal{width:100%;transition:opacity .5s ease}
+.hidden{display:none!important}
+.eyebrow{font:700 clamp(15px,2vw,28px) Arial,sans-serif;letter-spacing:.35em;color:#e33;text-transform:uppercase}
+h1{margin:2vh 0;font-size:clamp(48px,9vw,150px);line-height:1.05;text-transform:uppercase;color:#f4eeee;text-shadow:0 0 10px #f00,0 0 35px #b00000;overflow-wrap:anywhere}
+#qr{display:inline-block;background:white;padding:14px;border-radius:5px;min-width:220px;min-height:220px}
+#qr img,#qr canvas{display:block!important;width:min(24vw,34vh)!important;height:min(24vw,34vh)!important}
+.sub{font:700 clamp(16px,2vw,30px) Arial,sans-serif;color:#f4bcbc;letter-spacing:.12em;text-transform:uppercase}
+.phrase{font-size:clamp(22px,3.4vw,56px);font-style:italic;color:#ff6868;max-width:90%;margin:2vh auto;text-shadow:0 0 18px #c00}
+.blood{height:7px;width:70%;margin:2vh auto;background:linear-gradient(90deg,transparent,#a00000,#ff3333,#750000,transparent);box-shadow:0 0 22px #f00}
+#countdown{position:absolute;bottom:3vh;right:3vw;font:16px Arial,sans-serif;color:#d9a1a1}
+#queue{position:absolute;bottom:3vh;left:3vw;font:16px Arial,sans-serif;color:#d9a1a1}
+@keyframes emerge{from{opacity:0;transform:scale(1.08);filter:blur(12px)}to{opacity:1;transform:scale(1);filter:blur(0)}}
+.revealAnim{animation:emerge .8s ease-out}
+@media(max-aspect-ratio:1/1){#qr img,#qr canvas{width:42vw!important;height:42vw!important}}
+</style>
+</head>
+<body><div class="noise"></div><main class="stage">
+<section id="waiting">
+<div class="eyebrow">La oscuridad te está esperando</div>
+<h1>Escanea el QR<br>y descubre tu destino</h1>
+<div id="qr" aria-label="Código QR para enviar tu nombre"></div>
+<div class="blood"></div><div class="sub">Ingresa tu nombre desde tu celular</div>
+</section>
+<section id="reveal" class="hidden">
+<div class="eyebrow">Tu destino está escrito</div>
+<div class="blood"></div>
+<h1 id="person">NOMBRE</h1>
+<div id="phrase" class="phrase"></div>
+<div class="blood"></div>
+</section>
+<div id="countdown"></div><div id="queue"></div>
+</main>
+<script>
+const waiting=document.querySelector("#waiting"), reveal=document.querySelector("#reveal"), person=document.querySelector("#person"), phrase=document.querySelector("#phrase"), countdown=document.querySelector("#countdown"), queueLabel=document.querySelector("#queue");
+let currentId=null, countdownTimer=null, qrMade=false;
+async function setupQR(){
+ try{
+  const r=await fetch("/api/config"); const config=await r.json();
+  if(window.QRCode){new QRCode(document.querySelector("#qr"),{text:config.joinUrl,width:300,height:300,colorDark:"#000000",colorLight:"#ffffff",correctLevel:QRCode.CorrectLevel.M});qrMade=true;}
+  else {document.querySelector("#qr").textContent="No se pudo cargar el generador QR. Revisa la conexión a internet.";}
+ }catch(e){document.querySelector("#qr").textContent="No se pudo cargar el QR.";}
+}
+function showState(state){
+ queueLabel.textContent=state.waiting?`En espera: ${state.waiting}`:"";
+ if(!state.active){
+  currentId=null; clearInterval(countdownTimer); countdown.textContent="";
+  reveal.classList.add("hidden");waiting.classList.remove("hidden");return;
+ }
+ if(currentId!==state.active.id){
+  currentId=state.active.id; person.textContent=state.active.name; phrase.textContent=`«${state.active.phrase}»`;
+  waiting.classList.add("hidden");reveal.classList.remove("hidden");
+  reveal.classList.remove("revealAnim");void reveal.offsetWidth;reveal.classList.add("revealAnim");
+ }
+ const tick=()=>{const remaining=Math.max(0,Math.ceil((state.active.startedAt+state.active.durationMs-Date.now())/1000));countdown.textContent=`Siguiente aparición en ${remaining}s`;};
+ clearInterval(countdownTimer);tick();countdownTimer=setInterval(tick,250);
+}
+const socket=io();
+socket.on("state",showState);
+setupQR();
+</script></body></html>

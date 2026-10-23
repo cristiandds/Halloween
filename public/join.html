@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Descubre tu destino</title>
+<style>
+*{box-sizing:border-box}body{margin:0;min-height:100vh;display:grid;place-items:center;background:radial-gradient(ellipse at top,#3b0808,#080808 65%);color:#fff;font-family:Arial,sans-serif;padding:22px}
+.card{width:min(100%,440px);padding:30px;border:1px solid #6d1a1a;border-radius:18px;background:#100b0bee;box-shadow:0 0 40px #6b000044;text-align:center}
+h1{color:#f23a3a;text-transform:uppercase;letter-spacing:2px;font-size:clamp(25px,6vw,38px);margin:0 0 12px;text-shadow:0 0 16px #f00}
+p{color:#d9caca;line-height:1.5}label{display:block;text-align:left;margin:22px 0 8px;color:#f5dada}
+input{width:100%;padding:15px;border:1px solid #713030;border-radius:9px;background:#090909;color:#fff;font-size:18px;outline:none}
+input:focus{border-color:#ff4242;box-shadow:0 0 0 3px #ff222233}
+button{width:100%;margin-top:14px;padding:15px;border:0;border-radius:9px;background:#b91515;color:white;font-size:16px;font-weight:bold;letter-spacing:1px;cursor:pointer}
+button:disabled{opacity:.55;cursor:wait}.note{font-size:12px;color:#a99a9a}.result{margin-top:18px;min-height:24px;color:#ff7777}
+</style>
+</head>
+<body><main class="card">
+<h1>Descubre tu destino</h1>
+<p>Escribe tu nombre y deja que la oscuridad revele tu historia.</p>
+<form id="form">
+<label for="name">¿Cómo te llamas?</label>
+<input id="name" name="name" maxlength="32" minlength="2" autocomplete="given-name" placeholder="Escribe tu nombre..." required>
+<button id="send" type="submit">INVOCAR MI DESTINO</button>
+</form>
+<div id="result" class="result" role="status" aria-live="polite"></div>
+<p class="note">Tu nombre podrá aparecer en la pantalla del evento.</p>
+</main>
+<script>
+const form=document.querySelector("#form"), nameInput=document.querySelector("#name"), button=document.querySelector("#send"), result=document.querySelector("#result");
+form.addEventListener("submit",async e=>{
+ e.preventDefault(); button.disabled=true; result.textContent="Enviando tu nombre...";
+ try{
+  const response=await fetch("/api/submit",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({name:nameInput.value})});
+  const data=await response.json();
+  if(!response.ok) throw new Error(data.error||"No se pudo enviar.");
+  result.textContent=data.position<=1?"¡Prepárate! Tu nombre aparecerá en pantalla.":`¡Listo! Tu nombre está en la cola. Posición aproximada: ${data.position}.`;
+  nameInput.value="";
+ }catch(err){result.textContent=err.message;}
+ finally{button.disabled=false;}
+});
+</script></body></html>
