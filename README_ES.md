@@ -21,32 +21,49 @@ Aplicación web de ejemplo: el invitado escanea un QR, escribe su nombre y el si
 
 ## B. Ejecutarlo localmente para probar
 
-En la terminal de VS Code escribe:
-
+### Instalar dependencias
 ```bash
 npm install
 ```
 
-Cuando termine, escribe:
+### Configurar variables de entorno (opcional)
+Copia el archivo de ejemplo y ajusta los valores si lo necesitas:
 
+```bash
+cp .env.example .env
+```
+
+En Windows (PowerShell):
+```powershell
+Copy-Item .env.example .env
+```
+
+### Ejecutar
+```bash
+npm start
+```
+
+O en modo desarrollo:
+```bash
+npm run dev
+```
+
+Para configurar el token de pantalla, puedes usar variables de entorno. En cmd:
 ```bash
 set SCREEN_TOKEN=mi-token-largo-privado
 npm start
 ```
 
-En PowerShell, si el comando `set` no funciona, usa:
-
+En PowerShell:
 ```powershell
 $env:SCREEN_TOKEN="mi-token-largo-privado"
 npm start
 ```
 
 Abre la pantalla de control en tu navegador:
-
 `http://localhost:3000/screen?token=mi-token-largo-privado`
 
 Para probar el formulario en la misma laptop:
-
 `http://localhost:3000/join`
 
 Puedes enviar varios nombres desde pestañas diferentes y comprobar que aparecen uno por uno, 15 segundos cada uno. En local, el QR apunta a `localhost`, por lo que no funcionará en otros celulares.
@@ -74,11 +91,9 @@ Abre `server.js` y busca el arreglo `const phrases = [...]`. Cambia o añade fra
 ## E. Cambiar los 15 segundos
 
 En `server.js`, cambia:
-
 ```js
 const DISPLAY_SECONDS = 15;
 ```
-
 Por la duración deseada, por ejemplo `12` o `20`.
 
 ## F. Proyección con Resolume Arena

@@ -4,7 +4,11 @@
   "private": true,
   "description": "Sistema QR de nombres y frases de terror para proyeccion en vivo",
   "main": "server.js",
-  "scripts": { "start": "node server.js" },
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node server.js",
+    "test": "node -e \"console.log('no tests')\""
+  },
   "engines": { "node": ">=20" },
   "dependencies": {
     "express": "^4.21.2",
