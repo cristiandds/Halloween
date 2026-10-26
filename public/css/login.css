@@ -1,0 +1,10 @@
+*{box-sizing:border-box}body{margin:0;min-height:100vh;display:grid;place-items:center;background:radial-gradient(ellipse at top,#3b0808,#080808 65%);color:#fff;font-family:Arial,sans-serif;padding:22px}
+.card{width:min(100%,440px);padding:32px;border:1px solid #6d1a1a;border-radius:18px;background:#100b0bee;box-shadow:0 0 40px #6b000044;text-align:center}
+.eyebrow{font:700 12px Arial,sans-serif;letter-spacing:.3em;color:#e33;text-transform:uppercase}
+h1{color:#f23a3a;text-transform:uppercase;letter-spacing:2px;font-size:clamp(25px,6vw,38px);margin:10px 0 12px;text-shadow:0 0 16px #f00}
+p{color:#d9caca;line-height:1.5}label{display:block;text-align:left;margin:22px 0 8px;color:#f5dada}
+input{width:100%;padding:15px;border:1px solid #713030;border-radius:9px;background:#090909;color:#fff;font-size:18px;outline:none}
+input:focus{border-color:#ff4242;box-shadow:0 0 0 3px #ff222233}
+button{width:100%;margin-top:14px;padding:15px;border:0;border-radius:9px;background:#b91515;color:white;font-size:16px;font-weight:bold;letter-spacing:1px;cursor:pointer}
+button:disabled{opacity:.55;cursor:wait}.note{font-size:13px;color:#a99a9a;margin:18px 0 0}.note a{color:#ff8c8c}
+.message{margin-top:18px;min-height:24px;color:#ff7777}

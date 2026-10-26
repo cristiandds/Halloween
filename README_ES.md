@@ -7,7 +7,8 @@ Aplicación web de ejemplo: el invitado escanea un QR, escribe su nombre y el si
 - Este proyecto es una base funcional para pruebas, no un servicio ya desplegado.
 - Para que los celulares funcionen desde cualquier lugar, debes publicar la aplicación en un servicio de hosting.
 - La cola se guarda en memoria: si el servidor se reinicia, la cola se pierde.
-- Cambia `SCREEN_TOKEN` por una contraseña larga y privada en el hosting.
+- Define `ADMIN_PASSWORD` y `SESSION_SECRET` con valores largos y privados en el hosting.
+- El acceso a la pantalla y al panel privado requiere iniciar sesión en `/login`.
 - Añade límites y protección contra abuso antes de usarlo en un evento público grande.
 - La dirección del QR se genera usando la dirección pública del hosting. No funcionará para invitados si lo abres solo como `localhost`.
 
@@ -48,20 +49,24 @@ O en modo desarrollo:
 npm run dev
 ```
 
-Para configurar el token de pantalla, puedes usar variables de entorno. En cmd:
+Para configurar la contraseña administrativa y el secreto de sesión, puedes usar variables de entorno. En cmd:
 ```bash
-set SCREEN_TOKEN=mi-token-largo-privado
+set ADMIN_PASSWORD=una-contraseña-larga-y-privada
+set SESSION_SECRET=un-secreto-aleatorio-de-32-o-mas-caracteres
 npm start
 ```
 
 En PowerShell:
 ```powershell
-$env:SCREEN_TOKEN="mi-token-largo-privado"
+$env:ADMIN_PASSWORD="una-contraseña-larga-y-privada"
+$env:SESSION_SECRET="un-secreto-aleatorio-de-32-o-mas-caracteres"
 npm start
 ```
 
-Abre la pantalla de control en tu navegador:
-`http://localhost:3000/screen?token=mi-token-largo-privado`
+Abre el acceso privado en tu navegador:
+`http://localhost:3000/login`
+
+Después de iniciar sesión podrás abrir `/screen` (proyección) y `/admin` (panel). La pantalla ya no se autentica con `?token=` en la URL: usa una cookie de sesión `HttpOnly` y `SameSite=Strict`. Las sesiones caducan y se invalidan al cerrar sesión.
 
 Para probar el formulario en la misma laptop:
 `http://localhost:3000/join`
@@ -77,28 +82,43 @@ Necesitas desplegar esta carpeta como una aplicación web Node.js en un proveedo
 3. En Render crea un **Web Service** conectado al repositorio.
 4. Build Command: `npm install`
 5. Start Command: `npm start`
-6. En Environment Variables añade `SCREEN_TOKEN` con un valor largo y difícil de adivinar.
+6. En Environment Variables añade `ADMIN_PASSWORD` y `SESSION_SECRET` con valores largos, aleatorios y difíciles de adivinar. Añade también `NODE_ENV=production`, `PUBLIC_BASE_URL=https://tu-dominio` y `TRUST_PROXY=1`.
 7. Despliega y espera a que el servicio esté activo.
-8. Abre la URL pública que te dé Render y añade `/screen?token=TU_TOKEN`.
+8. Abre la URL pública `https://tu-dominio/login` e inicia sesión.
 9. El QR que aparece en la pantalla contendrá la dirección pública `/join`. Escanéalo con un celular que use datos móviles para probarlo.
 
-No compartas el enlace `/screen?token=...`: es la pantalla de control. Comparte solamente el QR para invitados. No publiques contraseñas en el código ni en repositorios.
+No compartas la sesión ni la contraseña administrativa: `/screen` y `/admin` son privados. Comparte solamente el QR para invitados. No publiques contraseñas ni secretos en el código ni en repositorios.
 
-## D. Personalizar las frases
+## D. Seguridad y variables relevantes
 
-Abre `server.js` y busca el arreglo `const phrases = [...]`. Cambia o añade frases entre comillas, separadas por comas. No incluyas contenido que pueda poner en riesgo o humillar a los invitados.
+- `/screen`, `/admin`, `/api/admin/state` y `/api/auth/session` requieren sesión.
+- `/screen.html` y otras rutas de archivo equivalentes no están disponibles.
+- La sesión usa una cookie opaca, aleatoria, `HttpOnly`, `SameSite=Strict` y `Secure` cuando la petición es HTTPS.
+- `ADMIN_PASSWORD` se compara con `scrypt` y tiempo constante. No hay usuario; solo contraseña de administrador.
+- El inicio de sesión tiene límite de intentos por IP y respuestas genéricas ante credenciales erróneas.
+- Las operaciones privadas que cambian estado exigen origen permitido y token CSRF.
+- Socket.IO rechaza conexiones sin sesión y solo envía nombres/frases a clientes autenticados.
+- `GET /api/state` devuelve únicamente estado público: si hay alguien en pantalla y cuántos esperan.
+- En producción la aplicación rechaza `ADMIN_PASSWORD` o `SESSION_SECRET` ausentes, débiles o de ejemplo.
+- Ejecuta `npm test` para comprobar las pruebas funcionales y de seguridad.
 
-## E. Cambiar los 15 segundos
+Variables principales: `PORT`, `DISPLAY_SECONDS`, `ADMIN_PASSWORD`, `SESSION_SECRET`, `SESSION_TTL_MINUTES`, `PUBLIC_BASE_URL`, `TRUST_PROXY` y `COOKIE_SECURE`.
 
-En `server.js`, cambia:
-```js
-const DISPLAY_SECONDS = 15;
+## E. Personalizar las frases
+
+Abre `src/services/phrase.service.js` y busca el arreglo `const PHRASES = [...]`. Cambia o añade frases entre comillas, separadas por comas. No incluyas contenido que pueda poner en riesgo o humillar a los invitados.
+
+## F. Cambiar los 15 segundos
+
+En `src/config/index.js` puedes cambiar `DISPLAY_SECONDS`, o definirlo con la variable de entorno `DISPLAY_SECONDS`. Por ejemplo:
+```bash
+set DISPLAY_SECONDS=12
 ```
-Por la duración deseada, por ejemplo `12` o `20`.
+Por defecto son 15 segundos.
 
-## F. Proyección con Resolume Arena
+## G. Proyección con Resolume Arena
 
-1. Abre la URL `/screen?token=TU_TOKEN` en Chrome o Edge.
+1. Inicia sesión en `/login` y abre `/screen` en Chrome o Edge.
 2. Pulsa F11 para pantalla completa.
 3. En Resolume, captura esa ventana o pantalla con la fuente de captura disponible en tu configuración.
 4. Configura la salida de Resolume hacia la pantalla LED.
@@ -108,5 +128,6 @@ Por la duración deseada, por ejemplo `12` o `20`.
 
 - La cola es volátil y no persiste tras reiniciar el servidor.
 - El QR necesita internet para cargar la librería que lo dibuja.
-- Esta versión no tiene panel administrativo ni bloqueo de envíos repetidos.
-- El token protege la ruta de proyección de forma básica; para una instalación pública profesional conviene añadir autenticación, moderación, límites de frecuencia y persistencia.
+- Las sesiones y el límite de intentos se guardan en memoria del proceso.
+- La pantalla y el panel privado requieren autenticación; el formulario público sigue abierto.
+- Para una instalación pública profesional conviene añadir moderación, límites de frecuencia en los envíos y persistencia.
