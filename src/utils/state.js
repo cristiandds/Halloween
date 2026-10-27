@@ -28,6 +28,22 @@ function createState({ queueService, phraseService, displaySeconds }) {
     } catch (e) {
       inscriptions = { open: true };
     }
+    let eventConfig = null;
+    try {
+      if (queueService.getLocalState) {
+        const s = queueService.getLocalState();
+        if (s && s.eventConfig) {
+          eventConfig = {
+            eventName: s.eventConfig.eventName,
+            displaySeconds: s.eventConfig.displaySeconds,
+            queueMaxLength: s.eventConfig.queueMaxLength,
+            moderationEnabled: s.eventConfig.moderationEnabled === true,
+            phrases: Array.isArray(s.eventConfig.phrases) ? s.eventConfig.phrases.slice() : [],
+            updatedAt: s.eventConfig.updatedAt || null
+          };
+        }
+      }
+    } catch (e) {}
     return {
       active: active
         ? {
@@ -51,6 +67,7 @@ function createState({ queueService, phraseService, displaySeconds }) {
       states: queueService.PARTICIPANT_STATES,
       inscriptions,
       inscriptionsOpen: inscriptions.open,
+      eventConfig,
       systemStatus: "ok",
       connectionStatus: "connected"
     };

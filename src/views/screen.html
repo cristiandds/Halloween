@@ -5,7 +5,6 @@
 <meta name="robots" content="noindex,nofollow">
 <title>Proyección de terror</title>
 <script src="/socket.io/socket.io.js"></script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
 <link rel="stylesheet" href="/css/screen.css">
 </head>
 <body><div class="noise"></div><main class="stage">
@@ -13,6 +12,7 @@
 <div class="eyebrow">La oscuridad te está esperando</div>
 <h1>Escanea el QR<br>y descubre tu destino</h1>
 <div id="qr" aria-label="Código QR para enviar tu nombre"></div>
+<div id="qr-fallback" class="sub" aria-live="polite"></div>
 <div class="blood"></div><div class="sub">Ingresa tu nombre desde tu celular</div>
 </section>
 <section id="reveal" class="hidden">

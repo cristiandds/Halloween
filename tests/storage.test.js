@@ -53,7 +53,7 @@ test("Guarda el estado completo con esquema versionado y lo recupera", async () 
   const dataDir = makeTempDir();
   const storage = makeStorage(dataDir, { maxBackups: 3 });
 
-  assert.strictEqual(storage.getState().schemaVersion, 1);
+  assert.strictEqual(storage.getState().schemaVersion, 2);
   assert.strictEqual(storage.getState().nextId, 1);
 
   const submittedAt = Date.now();
@@ -71,7 +71,7 @@ test("Guarda el estado completo con esquema versionado y lo recupera", async () 
   });
 
   const onDisk = JSON.parse(fs.readFileSync(storage.filePath, "utf8"));
-  assert.strictEqual(onDisk.schemaVersion, 1);
+  assert.strictEqual(onDisk.schemaVersion, 2);
   assert.strictEqual(onDisk.nextId, 2);
   assert.strictEqual(onDisk.pendingParticipants[0].name, "Ana");
   assert.strictEqual(onDisk.pauseState.paused, true);
@@ -79,7 +79,7 @@ test("Guarda el estado completo con esquema versionado y lo recupera", async () 
 
   const reopened = makeStorage(dataDir, { maxBackups: 3 });
   const recovered = reopened.getState();
-  assert.strictEqual(recovered.schemaVersion, 1);
+  assert.strictEqual(recovered.schemaVersion, 2);
   assert.strictEqual(recovered.nextId, 2);
   assert.strictEqual(recovered.pendingParticipants.length, 1);
   assert.strictEqual(recovered.pendingParticipants[0].name, "Ana");

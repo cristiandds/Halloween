@@ -7,6 +7,7 @@ const { createQueueService } = require("./services/queue.service");
 const { selectPhrase, getPhrases } = require("./services/phrase.service");
 const { createState } = require("./utils/state");
 const { createPublicRoutes } = require("./routes/public.routes");
+const { createQrRoutes } = require("./routes/qr.routes");
 const { createAuthRoutes } = require("./routes/auth.routes");
 const { createScreenRoutes } = require("./routes/screen.routes");
 const { createAdminRoutes } = require("./routes/admin.routes");
@@ -140,6 +141,7 @@ function createApp(options = {}) {
     next();
   });
 
+  app.use(createQrRoutes({ config }));
   app.use(createPublicRoutes({ config, queueService, state }));
   app.use(createAuthRoutes({
     config,

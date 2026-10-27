@@ -24,6 +24,14 @@ const activeNow = document.querySelector("#active-now");
 const connectionEl = document.querySelector("#connection");
 const inscriptionsEl = document.querySelector("#inscriptions");
 const participantsTbody = document.querySelector("#participants-tbody");
+const configForm = document.querySelector("#config-form");
+const eventNameInput = document.querySelector("#eventName");
+const displaySecondsInput = document.querySelector("#displaySeconds");
+const queueMaxLengthInput = document.querySelector("#queueMaxLength");
+const moderationEnabledInput = document.querySelector("#moderationEnabled");
+const phrasesList = document.querySelector("#phrases-list");
+const addPhraseBtn = document.querySelector("#add-phrase");
+const configMessage = document.querySelector("#config-message");
 
 let csrfToken = "";
 let refreshTimer = null;
@@ -173,6 +181,63 @@ function renderParticipants(state) {
   }
 }
 
+function renderPhrases(phrases) {
+  if (!phrasesList) return;
+  phrasesList.innerHTML = "";
+  const list = Array.isArray(phrases) ? phrases : [];
+  if (list.length === 0) {
+    const row = document.createElement("div");
+    row.className = "phrase-row";
+    const input = document.createElement("input");
+    input.type = "text";
+    input.placeholder = "Escribe una frase de terror";
+    input.dataset.phrase = "";
+    row.appendChild(input);
+    phrasesList.appendChild(row);
+    return;
+  }
+  for (const p of list) {
+    const row = document.createElement("div");
+    row.className = "phrase-row";
+    const input = document.createElement("input");
+    input.type = "text";
+    input.value = String(p);
+    input.placeholder = "Escribe una frase de terror";
+    const del = document.createElement("button");
+    del.type = "button";
+    del.className = "secondary";
+    del.textContent = "Eliminar";
+    del.addEventListener("click", () => {
+      if (phrasesList.querySelectorAll(".phrase-row").length <= 1) {
+        if (configMessage) configMessage.textContent = "Debe haber al menos una frase.";
+        return;
+      }
+      row.remove();
+      if (phrasesList) phrasesList.dataset.dirty = "true";
+    });
+    input.addEventListener("input", () => {
+      if (phrasesList) phrasesList.dataset.dirty = "true";
+    });
+    row.appendChild(input);
+    row.appendChild(del);
+    phrasesList.appendChild(row);
+  }
+}
+
+function collectPhrases() {
+  if (!phrasesList) return [];
+  const inputs = phrasesList.querySelectorAll("input");
+  const result = [];
+  for (const input of inputs) {
+    const val = input.value || "";
+    const trimmed = val.trim();
+    if (trimmed.length > 0) {
+      result.push(trimmed);
+    }
+  }
+  return result;
+}
+
 function render(state) {
   lastState = state;
   waiting.textContent = String(state.waiting ?? 0);
@@ -182,6 +247,24 @@ function render(state) {
     state.active && typeof state.remainingMs === "number"
       ? `${Math.ceil(state.remainingMs / 1000)}s`
       : "—";
+
+  if (state.eventConfig) {
+    if (eventNameInput && document.activeElement !== eventNameInput && phrasesList && !phrasesList.dataset.dirty) {
+      eventNameInput.value = state.eventConfig.eventName || "";
+    }
+    if (displaySecondsInput && document.activeElement !== displaySecondsInput) {
+      displaySecondsInput.value = state.eventConfig.displaySeconds ?? "";
+    }
+    if (queueMaxLengthInput && document.activeElement !== queueMaxLengthInput) {
+      queueMaxLengthInput.value = state.eventConfig.queueMaxLength ?? "";
+    }
+    if (moderationEnabledInput) {
+      moderationEnabledInput.checked = state.eventConfig.moderationEnabled === true;
+    }
+    if (phrasesList && !phrasesList.dataset.dirty) {
+      renderPhrases(state.eventConfig.phrases || []);
+    }
+  }
 
   if (state.paused) {
     mode.textContent = "PAUSA";
@@ -219,6 +302,116 @@ function render(state) {
   if (skipButton) skipButton.disabled = !state.active;
   if (finishButton) finishButton.disabled = !state.active;
   if (nextButton) nextButton.disabled = Boolean(state.active) || Boolean(state.paused);
+}
+
+if (addPhraseBtn) {
+  addPhraseBtn.addEventListener("click", () => {
+    if (!phrasesList) return;
+    phrasesList.dataset.dirty = "true";
+    const row = document.createElement("div");
+    row.className = "phrase-row";
+    const input = document.createElement("input");
+    input.type = "text";
+    input.placeholder = "Escribe una frase de terror";
+    const del = document.createElement("button");
+    del.type = "button";
+    del.className = "secondary";
+    del.textContent = "Eliminar";
+    del.addEventListener("click", () => {
+      if (phrasesList.querySelectorAll(".phrase-row").length <= 1) {
+        if (configMessage) configMessage.textContent = "Debe haber al menos una frase.";
+        return;
+      }
+      row.remove();
+      if (phrasesList) phrasesList.dataset.dirty = "true";
+    });
+    input.addEventListener("input", () => {
+      if (phrasesList) phrasesList.dataset.dirty = "true";
+    });
+    row.appendChild(input);
+    row.appendChild(del);
+    phrasesList.appendChild(row);
+    input.focus();
+  });
+}
+
+if (configForm) {
+  configForm.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    if (!csrfToken) {
+      if (configMessage) configMessage.textContent = "No hay token de sesión.";
+      return;
+    }
+    const eventName = eventNameInput ? eventNameInput.value : "";
+    const displaySeconds = displaySecondsInput ? Number(displaySecondsInput.value) : NaN;
+    const queueMaxLength = queueMaxLengthInput ? Number(queueMaxLengthInput.value) : NaN;
+    const moderationEnabled = moderationEnabledInput ? moderationEnabledInput.checked : false;
+    const phrases = collectPhrases();
+    if (eventName.trim().length === 0) {
+      if (configMessage) configMessage.textContent = "El nombre del evento es obligatorio.";
+      return;
+    }
+    if (!Number.isInteger(displaySeconds) || displaySeconds < 5 || displaySeconds > 60) {
+      if (configMessage) configMessage.textContent = "La duración debe estar entre 5 y 60 segundos.";
+      return;
+    }
+    if (!Number.isInteger(queueMaxLength) || queueMaxLength < 1 || queueMaxLength > 1000) {
+      if (configMessage) configMessage.textContent = "La cantidad máxima en cola debe ser válida.";
+      return;
+    }
+    if (phrases.length === 0) {
+      if (configMessage) configMessage.textContent = "Debe haber al menos una frase de terror.";
+      return;
+    }
+    const saveBtn = document.querySelector("#save-config");
+    if (saveBtn) saveBtn.disabled = true;
+    if (configMessage) configMessage.textContent = "Guardando...";
+    try {
+      const payload = {
+        eventName: eventName.trim(),
+        displaySeconds,
+        queueMaxLength,
+        moderationEnabled,
+        phrases
+      };
+      const response = await fetch("/api/admin/config", {
+        method: "POST",
+        headers: {
+          "Accept": "application/json",
+          "Content-Type": "application/json",
+          "X-CSRF-Token": csrfToken
+        },
+        credentials: "same-origin",
+        body: JSON.stringify(payload)
+      });
+      if (response.status === 401) {
+        redirectToLogin();
+        return;
+      }
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        throw new Error(data.error || "No se pudo guardar la configuración.");
+      }
+      if (phrasesList) phrasesList.dataset.dirty = "";
+      if (configMessage) {
+        configMessage.textContent = "Configuración guardada correctamente.";
+        setTimeout(() => {
+          if (configMessage.textContent === "Configuración guardada correctamente.") {
+            configMessage.textContent = "";
+          }
+        }, 2000);
+      }
+      if (data.state) {
+        render(data.state);
+      } else {
+        await refresh();
+      }
+    } catch (error) {
+      if (configMessage) configMessage.textContent = error.message || "No se pudo guardar la configuración.";
+    } finally {
+      if (saveBtn) saveBtn.disabled = false;
+    }
+  });
 }
 
 async function loadSession() {

@@ -32,12 +32,46 @@ function createQueueService({
     throw new Error("El servicio de cola requiere un almacenamiento persistente.");
   }
 
-  const numericDisplaySeconds = Number(displaySeconds);
-  const effectiveDisplaySeconds =
-    Number.isFinite(numericDisplaySeconds) && numericDisplaySeconds > 0
-      ? numericDisplaySeconds
+  const initialNumericDisplaySeconds = Number(displaySeconds);
+  let constructorDisplaySeconds =
+    Number.isFinite(initialNumericDisplaySeconds) && initialNumericDisplaySeconds > 0
+      ? initialNumericDisplaySeconds
       : DEFAULT_DISPLAY_SECONDS;
-  const displayMs = Math.round(effectiveDisplaySeconds * 1000);
+  let effectiveDisplaySeconds = constructorDisplaySeconds;
+  function getDisplaySeconds() {
+    const n2 = Number(constructorDisplaySeconds);
+    if (Number.isFinite(n2) && n2 > 0) {
+      if (Number.isInteger(n2) && n2 >= 5 && n2 <= 60) {
+        effectiveDisplaySeconds = n2;
+        return n2;
+      }
+      if (n2 >= 0.1 && n2 <= 120) {
+        effectiveDisplaySeconds = n2;
+        return n2;
+      }
+    }
+    try {
+      const s = storage.getState ? storage.getState() : state;
+      if (s && s.eventConfig && s.eventConfig.displaySeconds !== undefined && s.eventConfig.displaySeconds !== null) {
+        const v = s.eventConfig.displaySeconds;
+        const n = Number(v);
+        if (Number.isFinite(n) && n > 0) {
+          if (Number.isInteger(n) && n >= 5 && n <= 60) {
+            effectiveDisplaySeconds = n;
+            return n;
+          }
+          if (n >= 0.1 && n <= 120) {
+            effectiveDisplaySeconds = n;
+            return n;
+          }
+        }
+      }
+    } catch (e) {}
+    return Number.isFinite(effectiveDisplaySeconds) && effectiveDisplaySeconds > 0 ? effectiveDisplaySeconds : 15;
+  }
+  function getDisplayMs() {
+    return Math.round(getDisplaySeconds() * 1000);
+  }
   const queueMaxLength =
     Number.isInteger(maxLength) && maxLength > 0 ? maxLength : DEFAULT_QUEUE_MAX_LENGTH;
   const safeLogger = logger && typeof logger.error === "function" ? logger : console;
@@ -150,11 +184,23 @@ function createQueueService({
   }
 
   function phrasePool() {
+    try {
+      const s = state || (storage.getState ? storage.getState() : null);
+      if (s && s.eventConfig && Array.isArray(s.eventConfig.phrases)) {
+        const values = s.eventConfig.phrases.filter((value) => typeof value === "string" && value.trim().length > 0);
+        if (values.length > 0) {
+          return values;
+        }
+      }
+    } catch (e) {}
     if (typeof getPhrases === "function") {
       try {
         const values = getPhrases();
         if (Array.isArray(values)) {
-          return values.filter((value) => typeof value === "string" && value.length > 0);
+          const filtered = values.filter((value) => typeof value === "string" && value.length > 0);
+          if (filtered.length > 0) {
+            return filtered;
+          }
         }
       } catch (error) {
         safeLogger.error("[queue] No se pudo obtener el listado de frases:", error.message);
@@ -226,8 +272,9 @@ function createQueueService({
       return false;
     }
 
+    const durationMs = getDisplayMs();
     const phrase = choosePhrase(draft);
-    const endsAt = at + displayMs;
+    const endsAt = at + durationMs;
     draft.activeParticipant = {
       id: next.id,
       name: next.name,
@@ -235,7 +282,7 @@ function createQueueService({
       state: PARTICIPANT_STATES.ACTIVE,
       registeredAt: next.registeredAt ?? next.submittedAt ?? at,
       startedAt: at,
-      durationMs: displayMs,
+      durationMs,
       endsAt,
       remainingMs: null
     };
@@ -254,6 +301,9 @@ function createQueueService({
       return null;
     }
 
+    const durationMs =
+      typeof active.durationMs === "number" && active.durationMs > 0 ? active.durationMs : getDisplayMs();
+
     const record = {
       id: active.id,
       name: active.name,
@@ -262,8 +312,7 @@ function createQueueService({
       registeredAt: active.registeredAt ?? active.submittedAt ?? active.startedAt ?? at,
       startedAt: active.startedAt ?? null,
       finishedAt: at,
-      durationMs:
-        typeof active.durationMs === "number" && active.durationMs > 0 ? active.durationMs : displayMs
+      durationMs
     };
 
     draft.activeParticipant = null;
@@ -459,7 +508,7 @@ function createQueueService({
               ? active.remainingMs
               : typeof active.endsAt === "number"
                 ? Math.max(0, active.endsAt - at)
-                : displayMs;
+                : getDisplayMs();
           draft.pauseState.remainingMs = fallback;
         }
         active.remainingMs = draft.pauseState.remainingMs;
@@ -472,7 +521,7 @@ function createQueueService({
           const projectedAt =
             typeof active.remainingMs === "number"
               ? at + active.remainingMs
-              : (active.startedAt ?? at) + (active.durationMs ?? displayMs);
+              : (active.startedAt ?? at) + (active.durationMs ?? getDisplayMs());
           active.endsAt = projectedAt;
         }
         if (active.endsAt <= at) {
@@ -523,10 +572,18 @@ function createQueueService({
 
       const at = clock();
       const draft = clone(state);
-      const requestedState =
+      let requestedState =
         options.state === PARTICIPANT_STATES.PENDING_APPROVAL
           ? PARTICIPANT_STATES.PENDING_APPROVAL
           : PARTICIPANT_STATES.WAITING;
+      try {
+        const moderationEnabled = draft && draft.eventConfig && draft.eventConfig.moderationEnabled === true;
+        if (moderationEnabled && options.forceNoModeration !== true) {
+          requestedState = PARTICIPANT_STATES.PENDING_APPROVAL;
+        } else if (options.forceModeration === true) {
+          requestedState = PARTICIPANT_STATES.PENDING_APPROVAL;
+        }
+      } catch (e) {}
 
       const waiting = Array.isArray(draft.pendingParticipants) ? draft.pendingParticipants : [];
       const approval = Array.isArray(draft.moderationPendingParticipants)
@@ -775,7 +832,7 @@ function createQueueService({
               ? active.remainingMs
               : typeof active.endsAt === "number"
                 ? Math.max(0, active.endsAt - at)
-                : displayMs;
+                : getDisplayMs();
 
         if (remainingMs <= 0) {
           concludeActiveInDraft(draft, at, PARTICIPANT_STATES.COMPLETED);
@@ -921,7 +978,7 @@ function createQueueService({
     const activeOffset = active ? 1 : 0;
     const position = activeOffset + index + 1;
     const activeRemaining = active ? remainingFor(active) : 0;
-    const estimatedWaitMs = activeRemaining + index * displayMs;
+    const estimatedWaitMs = activeRemaining + index * getDisplayMs();
     return {
       participantId,
       state: PARTICIPANT_STATES.WAITING,
@@ -947,7 +1004,7 @@ function createQueueService({
       active: getActive(),
       waiting: getQueueLength(),
       pendingApproval: getPendingApprovalCount(),
-      displaySeconds: effectiveDisplaySeconds,
+      displaySeconds: getDisplaySeconds(),
       serverTime: clock()
     };
   }
@@ -1057,6 +1114,89 @@ function createQueueService({
   recoverSynchronously();
   scheduleTimer();
 
+  async function getEventConfig() {
+    try {
+      const s = state || (storage.getState ? storage.getState() : null);
+      if (s && s.eventConfig) {
+        return {
+          eventName: s.eventConfig.eventName || "Halloween QR",
+          displaySeconds: getDisplaySeconds(),
+          queueMaxLength: s.eventConfig.queueMaxLength,
+          moderationEnabled: s.eventConfig.moderationEnabled === true,
+          phrases: Array.isArray(s.eventConfig.phrases) ? s.eventConfig.phrases.slice() : [],
+          updatedAt: s.eventConfig.updatedAt || null
+        };
+      }
+    } catch (e) {}
+    return {
+      eventName: "Halloween QR",
+      displaySeconds: getDisplaySeconds(),
+      queueMaxLength,
+      moderationEnabled: false,
+      phrases: [],
+      updatedAt: null
+    };
+  }
+
+  async function updateEventConfig(updates = {}) {
+    return withLock(async () => {
+      const draft = clone(state);
+      const nowTs = clock();
+      if (!isPlainObject(draft.eventConfig)) {
+        draft.eventConfig = {};
+      }
+      if (typeof updates.eventName === "string") {
+        const name = updates.eventName.trim();
+        if (name.length === 0) {
+          throw createError("El nombre del evento es obligatorio.", 400);
+        }
+        if (name.length > 200) {
+          throw createError("El nombre del evento es demasiado largo.", 400);
+        }
+        draft.eventConfig.eventName = name;
+      }
+      if (updates.displaySeconds !== undefined && updates.displaySeconds !== null) {
+        const ds = Number(updates.displaySeconds);
+        if (!Number.isInteger(ds) || ds < 5 || ds > 60) {
+          throw createError("La duración debe estar entre 5 y 60 segundos.", 400);
+        }
+        draft.eventConfig.displaySeconds = ds;
+      }
+      if (updates.queueMaxLength !== undefined && updates.queueMaxLength !== null) {
+        const ql = Number(updates.queueMaxLength);
+        if (!Number.isInteger(ql) || ql < 1 || ql > 1000) {
+          throw createError("La cantidad máxima en cola debe ser válida.", 400);
+        }
+        draft.eventConfig.queueMaxLength = ql;
+      }
+      if (updates.moderationEnabled !== undefined) {
+        draft.eventConfig.moderationEnabled = updates.moderationEnabled === true;
+      }
+      if (Array.isArray(updates.phrases)) {
+        const phrases = updates.phrases
+          .filter((p) => typeof p === "string")
+          .map((p) => p.trim())
+          .filter((p) => p.length > 0);
+        if (phrases.length === 0) {
+          throw createError("Debe haber al menos una frase de terror.", 400);
+        }
+        if (phrases.some((p) => p.length > 300)) {
+          throw createError("Las frases son demasiado largas.", 400);
+        }
+        draft.eventConfig.phrases = phrases;
+      }
+      draft.eventConfig.updatedAt = new Date(nowTs).toISOString();
+      await persist(draft);
+      state = storage.getState ? storage.getState() : draft;
+      notifyChange();
+      return getEventConfig();
+    });
+  }
+
+  function isPlainObjectLocal(value) {
+    return Boolean(value) && typeof value === "object" && !Array.isArray(value);
+  }
+
   return {
     PARTICIPANT_STATES,
     addParticipant,
@@ -1074,6 +1214,8 @@ function createQueueService({
     setInscriptionsOpen,
     toggleInscriptions,
     getInscriptionsStatus,
+    getEventConfig,
+    updateEventConfig,
     enqueue,
     ensureRunning,
     getActive,

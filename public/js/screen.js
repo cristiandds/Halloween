@@ -4,31 +4,61 @@ const person = document.querySelector("#person");
 const phrase = document.querySelector("#phrase");
 const countdown = document.querySelector("#countdown");
 const queueLabel = document.querySelector("#queue");
+const qrContainer = document.querySelector("#qr");
+const qrFallback = document.querySelector("#qr-fallback");
 let currentId = null;
 let countdownTimer = null;
 let countdownBase = null;
 
 async function setupQR() {
   try {
-    const response = await fetch("/api/config", {
-      headers: { "Accept": "application/json" },
-      credentials: "same-origin"
-    });
-    const config = await response.json();
-    if (window.QRCode) {
-      new QRCode(document.querySelector("#qr"), {
-        text: config.joinUrl,
-        width: 300,
-        height: 300,
-        colorDark: "#000000",
-        colorLight: "#ffffff",
-        correctLevel: QRCode.CorrectLevel.M
-      });
-    } else {
-      document.querySelector("#qr").textContent = "No se pudo cargar el generador QR. Revisa la conexión a internet.";
+    const [configRes, qrRes] = await Promise.all([
+      fetch("/api/config", {
+        headers: { "Accept": "application/json" },
+        credentials: "same-origin"
+      }),
+      fetch("/api/qr", {
+        headers: { "Accept": "application/json" },
+        credentials: "same-origin"
+      })
+    ]);
+
+    const config = await configRes.json();
+    const qrData = await qrRes.json();
+
+    if (qrData && qrData.svg) {
+      qrContainer.innerHTML = qrData.svg;
+      // Ensure proper styling
+      const svgEl = qrContainer.querySelector("svg");
+      if (svgEl) {
+        svgEl.setAttribute("width", "300");
+        svgEl.setAttribute("height", "300");
+        svgEl.style.maxWidth = "100%";
+        svgEl.style.height = "auto";
+        svgEl.style.display = "block";
+        svgEl.style.margin = "0 auto";
+        svgEl.style.background = "#ffffff";
+      }
+      if (qrFallback && qrData.joinUrl) {
+        qrFallback.textContent = `URL: ${qrData.joinUrl}`;
+      }
+      return;
+    }
+
+    // Fallback to config URL if svg not available
+    if (qrFallback && config && config.joinUrl) {
+      qrFallback.textContent = `URL: ${config.joinUrl}`;
+    }
+    if (qrContainer) {
+      qrContainer.textContent = "No se pudo generar el código QR.";
     }
   } catch (error) {
-    document.querySelector("#qr").textContent = "No se pudo cargar el QR.";
+    if (qrContainer) {
+      qrContainer.textContent = "No se pudo cargar el QR.";
+    }
+    if (qrFallback) {
+      qrFallback.textContent = "Verifica la configuración de PUBLIC_BASE_URL.";
+    }
   }
 }
 

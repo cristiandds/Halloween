@@ -30,9 +30,11 @@ const SESSION_SECRET = process.env.SESSION_SECRET || (isProduction ? "" : DEFAUL
 const SESSION_COOKIE_NAME = "halloween_sid";
 const SESSION_TTL_MS = SESSION_TTL_MINUTES * 60 * 1000;
 
-const PUBLIC_BASE_URL = (process.env.PUBLIC_BASE_URL || "").trim();
+const PUBLIC_BASE_URL_RAW = (process.env.PUBLIC_BASE_URL || "").trim();
 const TRUST_PROXY = process.env.TRUST_PROXY === "1" || process.env.TRUST_PROXY === "true";
 const COOKIE_SECURE = process.env.COOKIE_SECURE === "1" || process.env.COOKIE_SECURE === "true";
+
+let PUBLIC_BASE_URL = PUBLIC_BASE_URL_RAW;
 
 // Submission protection
 const SUBMIT_IP_WINDOW_MS = parseInteger(process.env.SUBMIT_IP_WINDOW_MS, 60000);
@@ -74,6 +76,36 @@ const WEAK_SECRETS = new Set([
 
 function isBlank(value) {
   return typeof value !== "string" || value.trim().length === 0;
+}
+
+function validatePublicBaseUrl(url) {
+  if (typeof url !== "string") {
+    return null;
+  }
+  const trimmed = url.trim();
+  if (trimmed.length === 0) {
+    return null;
+  }
+  let parsed;
+  try {
+    parsed = new URL(trimmed);
+  } catch (error) {
+    throw new Error("PUBLIC_BASE_URL debe ser una URL absoluta válida.");
+  }
+  if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
+    throw new Error("PUBLIC_BASE_URL no puede usar esquemas peligrosos.");
+  }
+  if (isProduction && parsed.protocol !== "https:") {
+    throw new Error("PUBLIC_BASE_URL debe usar HTTPS en producción.");
+  }
+  if (!isProduction && parsed.protocol === "http:") {
+    // Allow http for local development
+  }
+  if (!parsed.hostname) {
+    throw new Error("PUBLIC_BASE_URL debe incluir un hostname válido.");
+  }
+  // Normalize: strip hash/query if present? Keep as-is for base
+  return parsed.origin + (parsed.pathname === "/" ? "" : parsed.pathname.replace(/\/$/, ""));
 }
 
 function assertValidConfig() {
@@ -118,6 +150,18 @@ function assertValidConfig() {
       throw new Error("SESSION_SECRET no puede usar valores predeterminados o débiles en producción.");
     }
   }
+
+  // Validate PUBLIC_BASE_URL if configured
+  try {
+    const validated = validatePublicBaseUrl(PUBLIC_BASE_URL_RAW);
+    if (validated) {
+      PUBLIC_BASE_URL = validated;
+    } else if (PUBLIC_BASE_URL_RAW.length > 0) {
+      // Already validated above would have thrown
+    }
+  } catch (error) {
+    throw error;
+  }
 }
 
 module.exports = {
@@ -131,6 +175,7 @@ module.exports = {
   ADMIN_PASSWORD,
   SESSION_SECRET,
   PUBLIC_BASE_URL,
+  PUBLIC_BASE_URL_RAW,
   TRUST_PROXY,
   COOKIE_SECURE,
   USING_DEV_PASSWORD: usingDevPassword,

@@ -231,6 +231,27 @@ function createAdminRoutes({ config, state, queueService, requireAuth, requireCs
     })
   );
 
+  router.get("/api/admin/config", requireAuth(), async (req, res, next) => {
+    try {
+      noStore(req, res, () => {});
+      if (typeof queueService.getEventConfig === "function") {
+        const cfg = await queueService.getEventConfig();
+        return res.json({ ok: true, config: cfg });
+      }
+      return res.json({ ok: true, config: {} });
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  router.post("/api/admin/config", ...operators, command(async (req) => {
+    if (typeof queueService.updateEventConfig !== "function") {
+      throw new Error("Servicio de configuración no disponible.");
+    }
+    const result = await queueService.updateEventConfig(req.body || {});
+    return { extra: { config: result } };
+  }));
+
   return router;
 }
 

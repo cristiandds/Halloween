@@ -24,6 +24,45 @@
 <button id="refresh" class="secondary" type="button">Actualizar estado</button>
 </section>
 
+<section class="card">
+  <h2>Configuración del evento</h2>
+  <form id="config-form" class="config-form" novalidate>
+    <div class="form-row">
+      <label for="eventName">Nombre del evento</label>
+      <input id="eventName" name="eventName" type="text" maxlength="200" required>
+    </div>
+    <div class="form-row grid-2">
+      <div>
+        <label for="displaySeconds">Duración por aparición (segundos)</label>
+        <input id="displaySeconds" name="displaySeconds" type="number" min="5" max="60" step="1" required>
+        <small>Valor entre 5 y 60 segundos. Se aplicará a la siguiente aparición.</small>
+      </div>
+      <div>
+        <label for="queueMaxLength">Cantidad máxima en cola</label>
+        <input id="queueMaxLength" name="queueMaxLength" type="number" min="1" max="1000" step="1" required>
+      </div>
+    </div>
+    <div class="form-row checkbox">
+      <label>
+        <input id="moderationEnabled" name="moderationEnabled" type="checkbox">
+        Activar moderación (nuevos nombres pasan a pendientes de aprobación)
+      </label>
+    </div>
+    <div class="form-row">
+      <label>Frases de terror</label>
+      <div id="phrases-list" class="phrases-list"></div>
+      <div class="phrases-actions">
+        <button id="add-phrase" type="button" class="secondary">Agregar frase</button>
+      </div>
+      <small>Debe haber al menos una frase. Las frases vacías no se guardarán.</small>
+    </div>
+    <div class="form-actions">
+      <button id="save-config" type="submit">Guardar configuración</button>
+    </div>
+    <div id="config-message" class="message" role="status" aria-live="polite"></div>
+  </form>
+</section>
+
 <section class="stats">
 <div class="stat"><span>Total participantes</span><strong id="total-participants">—</strong></div>
 <div class="stat"><span>En espera</span><strong id="waiting">—</strong></div>

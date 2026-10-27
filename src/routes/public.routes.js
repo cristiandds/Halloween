@@ -131,7 +131,8 @@ function createPublicRoutes({ config, queueService, state }) {
         entry = await queueService.addParticipant(name, {
           state: config.REQUIRE_APPROVAL
             ? queueService.PARTICIPANT_STATES.PENDING_APPROVAL
-            : queueService.PARTICIPANT_STATES.WAITING
+            : queueService.PARTICIPANT_STATES.WAITING,
+          forceNoModeration: config.REQUIRE_APPROVAL ? false : true
         });
       } catch (qErr) {
         if (qErr.status) {

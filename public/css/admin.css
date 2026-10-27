@@ -36,4 +36,17 @@ h2{margin:0 0 12px;font-size:18px;color:#ff6b6b;text-transform:uppercase;letter-
 .reorder{display:flex;flex-wrap:wrap;gap:10px;align-items:center;margin-top:14px}
 .reorder input{padding:10px 12px;border-radius:8px;border:1px solid #5a1a1a;background:#0f0f0f;color:#f5f5f5;min-width:240px}
 .message{min-height:24px;color:#ff8f8f;font-weight:bold}
-@media(max-width:640px){body{padding:16px}.topbar{align-items:flex-start}.participants-table{min-width:640px}}
+.config-form{display:flex;flex-direction:column;gap:16px}
+.form-row{display:flex;flex-direction:column;gap:8px}
+.form-row label{font-size:14px;color:#ffb3b3}
+.form-row input[type="text"],.form-row input[type="number"]{padding:10px 12px;border-radius:8px;border:1px solid #5a1a1a;background:#0f0f0f;color:#f5f5f5}
+.form-row small{color:#b8a3a3}
+.grid-2{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:14px}
+.checkbox label{display:flex;align-items:center;gap:10px}
+.phrases-list{display:flex;flex-direction:column;gap:10px}
+.phrase-row{display:flex;gap:10px;align-items:flex-start}
+.phrase-row input{flex:1}
+.phrase-row button{padding:8px 12px;min-height:38px}
+.phrases-actions{display:flex;gap:10px}
+.form-actions{display:flex;gap:10px;flex-wrap:wrap}
+@media(max-width:640px){body{padding:16px}.topbar{align-items:flex-start}.participants-table{min-width:640px}.phrase-row{flex-direction:column;align-items:stretch}}

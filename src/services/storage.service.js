@@ -4,7 +4,7 @@ const fs = require("fs");
 const fsp = fs.promises;
 const path = require("path");
 
-const SCHEMA_VERSION = 1;
+const SCHEMA_VERSION = 2;
 const DEFAULT_FILE_NAME = "event-state.json";
 const DEFAULT_BACKUP_LIMIT = 5;
 
@@ -199,13 +199,66 @@ function migrateState(raw) {
 
   // Punto de extensión para futuras migraciones. Cada versión nueva debe
   // transformar explícitamente el estado anterior antes de devolverlo.
+  if (version === 1) {
+    const migrated = clone(raw);
+    migrated.schemaVersion = 2;
+    if (!isPlainObject(migrated.eventConfig)) {
+      migrated.eventConfig = {};
+    }
+    migrated.eventConfig.eventName =
+      typeof migrated.eventConfig.eventName === "string" && migrated.eventConfig.eventName.trim()
+        ? migrated.eventConfig.eventName.trim()
+        : "Halloween QR";
+    if (migrated.eventConfig.moderationEnabled === undefined) {
+      migrated.eventConfig.moderationEnabled = false;
+    } else {
+      migrated.eventConfig.moderationEnabled = migrated.eventConfig.moderationEnabled === true;
+    }
+    if (!Array.isArray(migrated.eventConfig.phrases) || migrated.eventConfig.phrases.length === 0) {
+      migrated.eventConfig.phrases = DEFAULT_PHRASES.slice();
+    } else {
+      const phrases = migrated.eventConfig.phrases
+        .filter((p) => typeof p === "string")
+        .map((p) => p.trim())
+        .filter((p) => p.length > 0);
+      migrated.eventConfig.phrases = phrases.length > 0 ? phrases : DEFAULT_PHRASES.slice();
+    }
+    migrated.eventConfig.displaySeconds = toPositiveInteger(
+      migrated.eventConfig.displaySeconds,
+      "eventConfig.displaySeconds",
+      15
+    );
+    migrated.eventConfig.queueMaxLength = toPositiveInteger(
+      migrated.eventConfig.queueMaxLength,
+      "eventConfig.queueMaxLength",
+      100
+    );
+    migrated.eventConfig.updatedAt =
+      typeof migrated.eventConfig.updatedAt === "string" && migrated.eventConfig.updatedAt
+        ? migrated.eventConfig.updatedAt
+        : toIso(Date.now());
+    return migrated;
+  }
   switch (version) {
-    case 1:
+    case 2:
       return raw;
     default:
       throw new StorageError(`No existe una migración para la versión ${version}.`);
   }
 }
+
+const DEFAULT_PHRASES = [
+  "La oscuridad ya conoce tu nombre.",
+  "Esta noche, las sombras te han elegido.",
+  "No mires detrás de ti.",
+  "Tu destino acaba de despertar.",
+  "Alguien susurra tu nombre en la oscuridad.",
+  "La sangre recuerda lo que los vivos olvidan.",
+  "Has cruzado una puerta que no debías abrir.",
+  "Esta historia apenas acaba de comenzar.",
+  "El silencio sabe algo que tú ignoras.",
+  "No todas las almas encuentran el camino de regreso."
+];
 
 function createInitialState({ displaySeconds = 15, queueMaxLength = 100, now = Date.now() } = {}) {
   const timestamp = toIso(now);
@@ -234,8 +287,11 @@ function createInitialState({ displaySeconds = 15, queueMaxLength = 100, now = D
       lastFinishedAt: null
     },
     eventConfig: {
+      eventName: "Halloween QR",
       displaySeconds,
       queueMaxLength,
+      moderationEnabled: false,
+      phrases: DEFAULT_PHRASES.slice(),
       updatedAt: timestamp
     },
     inscriptionsOpen: true,
@@ -368,13 +424,27 @@ function normalizeState(raw, { displaySeconds = 15, queueMaxLength = 100, now = 
   };
 
   const configSource = isPlainObject(migrated.eventConfig) ? migrated.eventConfig : {};
+  let configPhrases = Array.isArray(configSource.phrases) ? configSource.phrases : [];
+  configPhrases = configPhrases
+    .filter((p) => typeof p === "string")
+    .map((p) => p.trim())
+    .filter((p) => p.length > 0);
+  if (configPhrases.length === 0) {
+    configPhrases = DEFAULT_PHRASES.slice();
+  }
   const eventConfig = {
+    eventName:
+      typeof configSource.eventName === "string" && configSource.eventName.trim()
+        ? configSource.eventName.trim().slice(0, 200)
+        : "Halloween QR",
     displaySeconds: toPositiveInteger(configSource.displaySeconds, "eventConfig.displaySeconds", displaySeconds),
     queueMaxLength: toPositiveInteger(
       configSource.queueMaxLength,
       "eventConfig.queueMaxLength",
       queueMaxLength
     ),
+    moderationEnabled: configSource.moderationEnabled === true,
+    phrases: configPhrases,
     updatedAt:
       typeof configSource.updatedAt === "string" && configSource.updatedAt
         ? configSource.updatedAt
