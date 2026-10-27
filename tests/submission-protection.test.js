@@ -7,10 +7,14 @@ process.env.COOKIE_SECURE = "0";
 
 const { test } = require("node:test");
 const assert = require("node:assert");
+const fs = require("fs");
+const os = require("os");
+const path = require("path");
 const { createApp } = require("../src/app");
 
 async function startApp() {
-  const context = createApp();
+  const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), "halloween-submission-"));
+  const context = createApp({ dataDir });
   await new Promise((resolve) => context.server.listen(0, "127.0.0.1", resolve));
   const address = context.server.address();
   const baseUrl = `http://127.0.0.1:${address.port}`;
@@ -20,12 +24,13 @@ async function startApp() {
     if (context.submissionProtection && typeof context.submissionProtection.stopCleanup === "function") {
       context.submissionProtection.stopCleanup();
     }
-    context.queueService.clearTimer();
+    context.queueService.close();
     context.sessions.stopCleanup();
     await new Promise((resolve) => context.io.close(resolve));
     if (context.server.listening) {
       await new Promise((resolve) => context.server.close(resolve));
     }
+    fs.rmSync(dataDir, { recursive: true, force: true });
   };
 
   return context;

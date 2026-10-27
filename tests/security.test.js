@@ -8,6 +8,8 @@ process.env.COOKIE_SECURE = "0";
 const { test } = require("node:test");
 const assert = require("node:assert");
 const path = require("path");
+const fs = require("fs");
+const os = require("os");
 const { spawnSync } = require("child_process");
 const { io: createClient } = require("socket.io-client");
 
@@ -18,19 +20,21 @@ const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD;
 const PRIVATE_NAME = "VictimaSecreta";
 
 async function startApp() {
-  const context = createApp();
+  const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), "halloween-security-"));
+  const context = createApp({ dataDir });
   await new Promise((resolve) => context.server.listen(0, "127.0.0.1", resolve));
   const address = context.server.address();
   const baseUrl = `http://127.0.0.1:${address.port}`;
 
   context.baseUrl = baseUrl;
   context.stop = async () => {
-    context.queueService.clearTimer();
+    context.queueService.close();
     context.sessions.stopCleanup();
     await new Promise((resolve) => context.io.close(resolve));
     if (context.server.listening) {
       await new Promise((resolve) => context.server.close(resolve));
     }
+    fs.rmSync(dataDir, { recursive: true, force: true });
   };
 
   return context;

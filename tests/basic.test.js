@@ -1,11 +1,20 @@
 const { test } = require("node:test");
 const assert = require("node:assert");
 const http = require("http");
+const fs = require("fs");
+const os = require("os");
+const path = require("path");
 
 const { createApp } = require("../src/app");
 
+function makeDataDir() {
+  return fs.mkdtempSync(path.join(os.tmpdir(), "halloween-basic-"));
+}
+
 test("GET /health returns ok", async (t) => {
-  const { app, server } = createApp();
+  const dataDir = makeDataDir();
+  t.after(() => fs.rmSync(dataDir, { recursive: true, force: true }));
+  const { app, server } = createApp({ dataDir });
   await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
   const addr = server.address();
   const port = typeof addr === "object" && addr ? addr.port : 0;
@@ -26,7 +35,9 @@ test("GET /health returns ok", async (t) => {
 });
 
 test("GET /api/config returns expected fields", async (t) => {
-  const { app, server } = createApp();
+  const dataDir = makeDataDir();
+  t.after(() => fs.rmSync(dataDir, { recursive: true, force: true }));
+  const { app, server } = createApp({ dataDir });
   await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
   const addr = server.address();
   const port = typeof addr === "object" && addr ? addr.port : 0;
@@ -48,7 +59,9 @@ test("GET /api/config returns expected fields", async (t) => {
 });
 
 test("POST /api/submit validates name and enqueues", async (t) => {
-  const { app, server } = createApp();
+  const dataDir = makeDataDir();
+  t.after(() => fs.rmSync(dataDir, { recursive: true, force: true }));
+  const { app, server } = createApp({ dataDir });
   await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
   const addr = server.address();
   const port = typeof addr === "object" && addr ? addr.port : 0;

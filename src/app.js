@@ -18,9 +18,21 @@ const { createAuthMiddleware } = require("./middleware/auth");
 const { securityHeaders, noStore } = require("./middleware/security");
 const { setupSockets } = require("./sockets");
 const { createSubmissionProtection } = require("./services/submission-protection.service");
+const { createStorageService } = require("./services/storage.service");
 
-function createApp() {
+function createApp(options = {}) {
   config.assertValidConfig();
+
+  const dataDir = options.dataDir || config.DATA_DIR;
+  const storage = createStorageService({
+    dataDir,
+    fileName: config.STORAGE_FILE_NAME,
+    maxBackups: config.STORAGE_BACKUP_LIMIT,
+    displaySeconds: config.DISPLAY_SECONDS,
+    queueMaxLength: config.QUEUE_MAX_LENGTH,
+    logger: options.logger || console
+  });
+  storage.initializeSync();
 
   const app = express();
   const server = http.createServer(app);
@@ -58,7 +70,13 @@ function createApp() {
 
   app.use(express.json({ limit: "2kb" }));
 
-  const queueService = createQueueService({ displaySeconds: config.DISPLAY_SECONDS, maxLength: config.QUEUE_MAX_LENGTH });
+  const queueService = createQueueService({
+    displaySeconds: config.DISPLAY_SECONDS,
+    maxLength: config.QUEUE_MAX_LENGTH,
+    storage,
+    selectPhrase,
+    logger: options.logger || console
+  });
 
   const state = createState({
     queueService,
@@ -66,19 +84,11 @@ function createApp() {
     displaySeconds: config.DISPLAY_SECONDS
   });
 
-  const handlers = {
-    onStart: (next) => {
-      const active = queueService.getActive();
-      const previousPhrase = active ? active.phrase : null;
-      const phrase = selectPhrase(previousPhrase);
-      return { phrase };
-    },
+  queueService.setHandlers({
     onFinish: () => {
       state.broadcast(io);
     }
-  };
-
-  state._handlers = handlers;
+  });
 
   const sessions = createSessionService({
     ttlMs: config.SESSION_TTL_MS,
@@ -160,7 +170,7 @@ function createApp() {
     res.status(status).json({ error: message });
   });
 
-  return { app, server, io, queueService, state, sessions, config, submissionProtection };
+  return { app, server, io, queueService, state, sessions, config, submissionProtection, storage };
 }
 
 module.exports = { createApp };

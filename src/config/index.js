@@ -12,6 +12,11 @@ const PORT = parseInteger(process.env.PORT, 3000);
 const DISPLAY_SECONDS = parseInteger(process.env.DISPLAY_SECONDS, 15);
 const QUEUE_MAX_LENGTH = parseInteger(process.env.QUEUE_MAX_LENGTH, 100);
 const SESSION_TTL_MINUTES = parseInteger(process.env.SESSION_TTL_MINUTES, 480);
+const STORAGE_BACKUP_LIMIT = Math.min(
+  Math.max(parseInteger(process.env.STORAGE_BACKUP_LIMIT, 5), 0),
+  50
+);
+const STORAGE_FILE_NAME = process.env.STORAGE_FILE_NAME || "event-state.json";
 
 const DEFAULT_DEV_ADMIN_PASSWORD = "dev-admin-password";
 const DEFAULT_DEV_SESSION_SECRET = "dev-session-secret-change-me-not-for-production";
@@ -40,6 +45,7 @@ const SUBMIT_DUPLICATE_TTL_MS = parseInteger(process.env.SUBMIT_DUPLICATE_TTL_MS
 const PARTICIPANT_COOKIE_NAME = process.env.PARTICIPANT_COOKIE_NAME || "halloween_pid";
 
 const PUBLIC_DIR = path.join(__dirname, "..", "..", "public");
+const DATA_DIR = path.resolve(process.env.DATA_DIR || path.join(__dirname, "..", "..", "data"));
 const VIEWS_DIR = path.join(__dirname, "..", "views");
 const JOIN_HTML = path.join(PUBLIC_DIR, "join.html");
 const LOGIN_HTML = path.join(VIEWS_DIR, "login.html");
@@ -90,6 +96,14 @@ function assertValidConfig() {
   if (SESSION_SECRET.length < 32) {
     throw new Error("SESSION_SECRET debe tener al menos 32 caracteres.");
   }
+  if (
+    !STORAGE_FILE_NAME ||
+    /[\\/]/.test(STORAGE_FILE_NAME) ||
+    STORAGE_FILE_NAME === "." ||
+    STORAGE_FILE_NAME === ".."
+  ) {
+    throw new Error("STORAGE_FILE_NAME debe ser un nombre de archivo simple.");
+  }
 
   if (isProduction) {
     if (usingDevPassword || WEAK_SECRETS.has(ADMIN_PASSWORD.toLowerCase())) {
@@ -121,6 +135,9 @@ module.exports = {
   USING_DEV_SESSION_SECRET: usingDevSessionSecret,
   PUBLIC_DIR,
   VIEWS_DIR,
+  DATA_DIR,
+  STORAGE_FILE_NAME,
+  STORAGE_BACKUP_LIMIT,
   JOIN_HTML,
   LOGIN_HTML,
   SCREEN_HTML,

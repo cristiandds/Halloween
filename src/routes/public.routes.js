@@ -1,4 +1,5 @@
 const express = require("express");
+const { StorageError } = require("../services/storage.service");
 
 function createPublicRoutes({ config, queueService, state }) {
   const router = express.Router();
@@ -40,7 +41,7 @@ function createPublicRoutes({ config, queueService, state }) {
     res.json(state.publicState());
   });
 
-  router.post("/api/submit", (req, res, next) => {
+  router.post("/api/submit", async (req, res, next) => {
     try {
       const protection = req.submissionProtection;
       if (!protection) {
@@ -108,14 +109,12 @@ function createPublicRoutes({ config, queueService, state }) {
         throw dupErr;
       }
       
-      // Check queue limit - queue service already throws with status 429 if full
+      // Check queue limit - queue service already throws with status 429 if full.
+      // enqueue() only resolves after the participant has been persisted.
       try {
-        queueService.enqueue(name);
+        await queueService.enqueue(name);
       } catch (qErr) {
         if (qErr.status) {
-          // Map to 503 if queue is full as per some interpretations? Wait - "7. Mantén el límite máximo de cola configurable." and queue throws 429 currently
-          // The requirement says "503: servicio temporalmente no disponible" - queue full might be considered service unavailable or too many requests
-          // Looking at current behavior: queue throws 429 "La cola está llena por ahora" - requirement says 429 is "demasiadas solicitudes". That matches.
           return res.status(qErr.status).json({ error: qErr.message });
         }
         throw qErr;
@@ -125,21 +124,15 @@ function createPublicRoutes({ config, queueService, state }) {
       protection.recordSubmission(req.ip || req.connection?.remoteAddress, participantId);
       protection.recordSubmissionName(participantId, name);
 
-      const position = queueService.getQueueLength() + (queueService.getActive() ? 1 : 0);
       if (!queueService.getActive()) {
-        if (typeof queueService.ensureRunning === "function") {
-          queueService.ensureRunning(state._handlers || {});
-        } else {
-          if (typeof queueService.startNext === "function") {
-            queueService.startNext(state._handlers || {});
-          }
-        }
-      } else {
-        try {
-          state.broadcast(req.app.get("io"));
-        } catch (e) {
-          // ignore broadcast errors
-        }
+        await queueService.ensureRunning();
+      }
+
+      const position = queueService.getQueueLength() + (queueService.getActive() ? 1 : 0);
+      try {
+        state.broadcast(req.app.get("io"));
+      } catch (e) {
+        // ignore broadcast errors
       }
 
       res.json({
@@ -151,6 +144,11 @@ function createPublicRoutes({ config, queueService, state }) {
     } catch (err) {
       if (err.status) {
         return res.status(err.status).json({ error: err.message });
+      }
+      if (err instanceof StorageError) {
+        return res.status(503).json({
+          error: "No se pudo guardar la información del evento. Inténtalo de nuevo."
+        });
       }
       next(err);
     }

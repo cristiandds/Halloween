@@ -7,7 +7,9 @@
   "scripts": {
     "start": "node server.js",
     "dev": "node server.js",
-    "test": "node --test"
+    "test": "node --test",
+    "storage:backups": "node scripts/recover-storage.js --list",
+    "storage:recover": "node scripts/recover-storage.js"
   },
   "engines": {
     "node": ">=20"

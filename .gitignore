@@ -1,6 +1,11 @@
 node_modules/
 .env
+# Datos locales del evento: nunca se versionan.
 data/
+event-state.json
+event-state.json.backup-*
+event-state.json.corrupt-*
+event-state.json.replaced-*
 *.db
 *.sqlite
 *.log
