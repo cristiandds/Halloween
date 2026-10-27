@@ -74,10 +74,32 @@ function toPositiveInteger(value, label, fallback) {
   return value;
 }
 
-function normalizeParticipant(raw, label) {
+const PARTICIPANT_STATES = Object.freeze({
+  PENDING_APPROVAL: "pending_approval",
+  WAITING: "waiting",
+  ACTIVE: "active",
+  COMPLETED: "completed",
+  REJECTED: "rejected",
+  SKIPPED: "skipped"
+});
+
+const VALID_PARTICIPANT_STATES = new Set(Object.values(PARTICIPANT_STATES));
+
+function normalizeStateName(value, fallback) {
+  return typeof value === "string" && VALID_PARTICIPANT_STATES.has(value) ? value : fallback;
+}
+
+function normalizeName(value) {
+  if (typeof value !== "string") {
+    return "";
+  }
+  return value.normalize("NFC").replace(/\s+/g, " ").trim();
+}
+
+function normalizeParticipant(raw, label, fallbackState = PARTICIPANT_STATES.WAITING) {
   assertPlainObject(raw, label);
   const id = toPositiveInteger(raw.id, `${label}.id`);
-  const name = typeof raw.name === "string" ? raw.name.trim() : "";
+  const name = normalizeName(raw.name);
   if (!name) {
     throw new StorageError(`El estado persistido no es válido: ${label}.name.`);
   }
@@ -85,14 +107,20 @@ function normalizeParticipant(raw, label) {
     id,
     name,
     phrase: typeof raw.phrase === "string" ? raw.phrase : null,
-    submittedAt: toEpoch(raw.submittedAt, `${label}.submittedAt`, { nullable: true })
+    state: normalizeStateName(raw.state, fallbackState),
+    registeredAt: toEpoch(raw.registeredAt ?? raw.submittedAt, `${label}.registeredAt`, {
+      nullable: true
+    }),
+    submittedAt: toEpoch(raw.submittedAt ?? raw.registeredAt, `${label}.submittedAt`, {
+      nullable: true
+    })
   };
 }
 
-function normalizeFinishedParticipant(raw, label) {
+function normalizeFinishedParticipant(raw, label, fallbackState = PARTICIPANT_STATES.COMPLETED) {
   assertPlainObject(raw, label);
   const id = toPositiveInteger(raw.id, `${label}.id`);
-  const name = typeof raw.name === "string" ? raw.name.trim() : "";
+  const name = normalizeName(raw.name);
   if (!name) {
     throw new StorageError(`El estado persistido no es válido: ${label}.name.`);
   }
@@ -100,26 +128,40 @@ function normalizeFinishedParticipant(raw, label) {
     id,
     name,
     phrase: typeof raw.phrase === "string" ? raw.phrase : null,
+    state: normalizeStateName(raw.state, fallbackState),
+    registeredAt: toEpoch(raw.registeredAt ?? raw.submittedAt, `${label}.registeredAt`, {
+      nullable: true
+    }),
     startedAt: toEpoch(raw.startedAt, `${label}.startedAt`, { nullable: true }),
     finishedAt: toEpoch(raw.finishedAt, `${label}.finishedAt`, { nullable: true }),
     durationMs: toPositiveInteger(raw.durationMs, `${label}.durationMs`, null)
   };
 }
 
-function normalizeActiveParticipant(raw, label) {
+function normalizeActiveParticipant(raw, label, fallbackDurationMs = 15000) {
   assertPlainObject(raw, label);
   const id = toPositiveInteger(raw.id, `${label}.id`);
-  const name = typeof raw.name === "string" ? raw.name.trim() : "";
+  const name = normalizeName(raw.name);
   if (!name) {
     throw new StorageError(`El estado persistido no es válido: ${label}.name.`);
   }
   const startedAt = toEpoch(raw.startedAt, `${label}.startedAt`);
-  const durationMs = toPositiveInteger(raw.durationMs, `${label}.durationMs`);
+  let durationMs = raw.durationMs !== undefined ? toPositiveInteger(raw.durationMs, `${label}.durationMs`, null) : null;
+  if (durationMs === null && typeof raw.remainingMs === "number") {
+    durationMs = toPositiveInteger(raw.remainingMs, `${label}.remainingMs`, null);
+  }
+  if (durationMs === null) {
+    durationMs = fallbackDurationMs;
+  }
   const endsAt = toEpoch(raw.endsAt, `${label}.endsAt`, { nullable: true });
   return {
     id,
     name,
     phrase: typeof raw.phrase === "string" ? raw.phrase : null,
+    state: PARTICIPANT_STATES.ACTIVE,
+    registeredAt: toEpoch(raw.registeredAt ?? raw.submittedAt, `${label}.registeredAt`, {
+      nullable: true
+    }),
     startedAt,
     durationMs,
     endsAt: endsAt === null ? null : endsAt,
@@ -171,8 +213,13 @@ function createInitialState({ displaySeconds = 15, queueMaxLength = 100, now = D
     schemaVersion: SCHEMA_VERSION,
     nextId: 1,
     pendingParticipants: [],
+    pendingApproval: [],
+    waiting: [],
     activeParticipant: null,
     finishedParticipants: [],
+    completed: [],
+    rejected: [],
+    skipped: [],
     moderationPendingParticipants: [],
     pauseState: {
       paused: false,
@@ -199,61 +246,97 @@ function createInitialState({ displaySeconds = 15, queueMaxLength = 100, now = D
 function normalizeState(raw, { displaySeconds = 15, queueMaxLength = 100, now = Date.now() } = {}) {
   const migrated = migrateState(raw);
 
-  if (migrated.pendingParticipants !== undefined && !Array.isArray(migrated.pendingParticipants)) {
-    throw new StorageError("El estado persistido no es válido: pendingParticipants.");
-  }
-  if (migrated.finishedParticipants !== undefined && !Array.isArray(migrated.finishedParticipants)) {
-    throw new StorageError("El estado persistido no es válido: finishedParticipants.");
-  }
-  if (migrated.moderationPendingParticipants !== undefined && !Array.isArray(migrated.moderationPendingParticipants)) {
-    throw new StorageError("El estado persistido no es válido: moderationPendingParticipants.");
-  }
-
-  const finishedParticipants = dedupeById(
-    (migrated.finishedParticipants || []).map((item, index) =>
-      normalizeFinishedParticipant(item, `finishedParticipants[${index}]`)
-    )
-  );
-  const finishedIds = new Set(finishedParticipants.map((participant) => participant.id));
-
-  const pendingParticipants = dedupeById(
-    (migrated.pendingParticipants || [])
-      .map((item, index) => normalizeParticipant(item, `pendingParticipants[${index}]`))
-      .filter((participant) => !finishedIds.has(participant.id))
-  );
-  const pendingIds = new Set(pendingParticipants.map((participant) => participant.id));
-
-  let moderationPendingParticipants = dedupeById(
-    (migrated.moderationPendingParticipants || [])
-      .map((item, index) =>
-        normalizeParticipant(item, `moderationPendingParticipants[${index}]`)
-      )
-      .filter((participant) => !finishedIds.has(participant.id) && !pendingIds.has(participant.id))
-  );
-
-  let activeParticipant = null;
-  if (migrated.activeParticipant !== undefined && migrated.activeParticipant !== null) {
-    activeParticipant = normalizeActiveParticipant(migrated.activeParticipant, "activeParticipant");
-    if (finishedIds.has(activeParticipant.id)) {
-      activeParticipant = null;
-    } else {
-      const activeIndex = pendingParticipants.findIndex(
-        (participant) => participant.id === activeParticipant.id
-      );
-      if (activeIndex >= 0) {
-        pendingParticipants.splice(activeIndex, 1);
-      }
-      moderationPendingParticipants = moderationPendingParticipants.filter(
-        (participant) => participant.id !== activeParticipant.id
-      );
+  for (const field of [
+    "pendingParticipants",
+    "finishedParticipants",
+    "moderationPendingParticipants",
+    "waiting",
+    "pendingApproval",
+    "completed",
+    "rejected",
+    "skipped"
+  ]) {
+    if (migrated[field] !== undefined && !Array.isArray(migrated[field])) {
+      throw new StorageError(`El estado persistido no es válido: ${field}.`);
     }
   }
 
+  // Canonical terminal records. Accept the legacy finishedParticipants and the
+  // newer per-state arrays; each record keeps its explicit state.
+  const finishedCandidates = [
+    ...(migrated.finishedParticipants || []),
+    ...(migrated.completed || []).map((item) => ({ ...item, state: PARTICIPANT_STATES.COMPLETED })),
+    ...(migrated.rejected || []).map((item) => ({ ...item, state: PARTICIPANT_STATES.REJECTED })),
+    ...(migrated.skipped || []).map((item) => ({ ...item, state: PARTICIPANT_STATES.SKIPPED }))
+  ];
+  const finishedById = new Map();
+  for (const item of finishedCandidates) {
+    const normalized = normalizeFinishedParticipant(item, "finishedParticipants");
+    if (!finishedById.has(normalized.id)) {
+      finishedById.set(normalized.id, normalized);
+    }
+  }
+  const finishedParticipants = [...finishedById.values()];
+  const finishedIds = new Set(finishedParticipants.map((participant) => participant.id));
+
+  // Waiting queue is stored under pendingParticipants for backward
+  // compatibility. The waiting alias is rebuilt from it. pendingParticipants
+  // is canonical even when it is empty, so stale aliases cannot resurrect
+  // participants that already left the queue.
+  const waitingSource = Array.isArray(migrated.pendingParticipants)
+    ? migrated.pendingParticipants
+    : (migrated.waiting || []);
+  const pendingParticipants = dedupeById(
+    waitingSource
+      .map((item) => normalizeParticipant(item, "pendingParticipants", PARTICIPANT_STATES.WAITING))
+      .filter((participant) => !finishedIds.has(participant.id))
+      .map((participant) => ({ ...participant, state: PARTICIPANT_STATES.WAITING }))
+  );
+  const waitingIds = new Set(pendingParticipants.map((participant) => participant.id));
+  const waiting = pendingParticipants.map((participant) => ({ ...participant }));
+
+  // Pending approval uses moderationPendingParticipants as the canonical
+  // persisted field and pendingApproval as a derived alias.
+  const approvalSource = Array.isArray(migrated.moderationPendingParticipants)
+    ? migrated.moderationPendingParticipants
+    : (migrated.pendingApproval || []);
+  const pendingApproval = dedupeById(
+    approvalSource
+      .map((item) =>
+        normalizeParticipant(item, "moderationPendingParticipants", PARTICIPANT_STATES.PENDING_APPROVAL)
+      )
+      .filter(
+        (participant) => !finishedIds.has(participant.id) && !waitingIds.has(participant.id)
+      )
+      .map((participant) => ({ ...participant, state: PARTICIPANT_STATES.PENDING_APPROVAL }))
+  );
+  const moderationPendingParticipants = pendingApproval.map((participant) => ({ ...participant }));
+
+  let activeParticipant = null;
+  if (migrated.activeParticipant !== undefined && migrated.activeParticipant !== null) {
+    activeParticipant = normalizeActiveParticipant(
+      migrated.activeParticipant,
+      "activeParticipant",
+      Math.round(displaySeconds * 1000)
+    );
+    if (finishedIds.has(activeParticipant.id)) {
+      activeParticipant = null;
+    }
+  }
+
+  const activeId = activeParticipant ? activeParticipant.id : null;
+  const removeFrom = (list) => list.filter((participant) => participant.id !== activeId);
+  const cleanedPending = removeFrom(pendingParticipants);
+  const cleanedWaiting = removeFrom(waiting);
+  const cleanedApproval = removeFrom(pendingApproval);
+  const cleanedModeration = removeFrom(moderationPendingParticipants);
+
+  // Remove any duplicates that may have appeared through legacy state.
   let nextId = toPositiveInteger(migrated.nextId, "nextId", 1);
   const usedIds = [
-    ...pendingParticipants.map((participant) => participant.id),
+    ...cleanedPending.map((participant) => participant.id),
     ...finishedParticipants.map((participant) => participant.id),
-    ...moderationPendingParticipants.map((participant) => participant.id),
+    ...cleanedApproval.map((participant) => participant.id),
     ...(activeParticipant ? [activeParticipant.id] : [])
   ];
   if (usedIds.length > 0) {
@@ -301,13 +384,28 @@ function normalizeState(raw, { displaySeconds = 15, queueMaxLength = 100, now = 
   const updatedAt =
     typeof migrated.updatedAt === "string" && migrated.updatedAt ? migrated.updatedAt : toIso(now);
 
+  const completed = finishedParticipants
+    .filter((participant) => participant.state === PARTICIPANT_STATES.COMPLETED)
+    .map((participant) => ({ ...participant }));
+  const rejected = finishedParticipants
+    .filter((participant) => participant.state === PARTICIPANT_STATES.REJECTED)
+    .map((participant) => ({ ...participant }));
+  const skipped = finishedParticipants
+    .filter((participant) => participant.state === PARTICIPANT_STATES.SKIPPED)
+    .map((participant) => ({ ...participant }));
+
   return {
     schemaVersion: SCHEMA_VERSION,
     nextId,
-    pendingParticipants,
+    pendingParticipants: cleanedPending.map((participant) => ({ ...participant })),
+    waiting: cleanedWaiting.map((participant) => ({ ...participant })),
+    pendingApproval: cleanedApproval.map((participant) => ({ ...participant })),
+    moderationPendingParticipants: cleanedModeration.map((participant) => ({ ...participant })),
     activeParticipant,
     finishedParticipants,
-    moderationPendingParticipants,
+    completed,
+    rejected,
+    skipped,
     pauseState,
     timers,
     eventConfig,
@@ -856,6 +954,8 @@ module.exports = {
   SCHEMA_VERSION,
   DEFAULT_FILE_NAME,
   DEFAULT_BACKUP_LIMIT,
+  PARTICIPANT_STATES,
+  normalizeName,
   StorageError,
   StorageCorruptionError,
   StorageWriteError,

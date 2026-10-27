@@ -18,5 +18,11 @@ h2{margin:0 0 12px;font-size:18px;color:#ff8c8c;text-transform:uppercase;letter-
 .phrase{margin:8px 0 0;color:#ff6868;font-style:italic;line-height:1.4}
 #preview{margin:0;padding-left:22px;color:#e8d8d8;line-height:1.8}
 #preview .empty{list-style:none;margin-left:-22px;color:#9c8888}
+.approval-list{list-style:none;margin:0;padding:0;color:#e8d8d8}
+.approval-list li{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:8px 0;border-bottom:1px solid #2d1111}
+.approval-list li:last-child{border-bottom:0}
+.approval-list .empty{justify-content:flex-start;color:#9c8888}
+.approval-list button{padding:8px 12px;font-size:12px}
+.approval-list .reject{background:#160d0d;color:#ffb3b3;border-color:#713030}
 .message{min-height:22px;color:#ff8c8c}
 @media(max-width:520px){body{padding:16px}.topbar{align-items:flex-start}}

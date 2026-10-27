@@ -4,6 +4,7 @@
 <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <meta name="robots" content="noindex,nofollow">
 <title>Panel privado</title>
+<script src="/socket.io/socket.io.js"></script>
 <link rel="stylesheet" href="/css/admin.css">
 </head>
 <body>
@@ -22,7 +23,17 @@
 </section>
 <section class="stats">
 <div class="stat"><span>En espera</span><strong id="waiting">—</strong></div>
+<div class="stat"><span>Por aprobar</span><strong id="pending-approval">—</strong></div>
 <div class="stat"><span>Duración</span><strong id="duration">—</strong></div>
+<div class="stat"><span>Restante</span><strong id="remaining">—</strong></div>
+<div class="stat"><span>Estado</span><strong id="mode">—</strong></div>
+</section>
+<section class="actions">
+<button id="next" type="button">Iniciar siguiente</button>
+<button id="pause" class="secondary" type="button">Pausar</button>
+<button id="resume" class="secondary" type="button">Reanudar</button>
+<button id="skip" class="secondary" type="button">Saltar actual</button>
+<button id="finish" class="secondary" type="button">Finalizar actual</button>
 </section>
 <section class="card">
 <h2>Ahora en pantalla</h2>
@@ -32,6 +43,10 @@
 <section class="card">
 <h2>Próximos nombres</h2>
 <ol id="preview"><li class="empty">Sin nombres en cola</li></ol>
+</section>
+<section class="card">
+<h2>Pendientes de aprobación</h2>
+<ul id="approval-list" class="approval-list"><li class="empty">Sin solicitudes pendientes</li></ul>
 </section>
 <div id="message" class="message" role="status" aria-live="polite"></div>
 </main>

@@ -43,6 +43,7 @@ const SUBMIT_GLOBAL_WINDOW_MS = parseInteger(process.env.SUBMIT_GLOBAL_WINDOW_MS
 const SUBMIT_GLOBAL_MAX = parseInteger(process.env.SUBMIT_GLOBAL_MAX, 100);
 const SUBMIT_DUPLICATE_TTL_MS = parseInteger(process.env.SUBMIT_DUPLICATE_TTL_MS, 10 * 60 * 1000);
 const PARTICIPANT_COOKIE_NAME = process.env.PARTICIPANT_COOKIE_NAME || "halloween_pid";
+const REQUIRE_APPROVAL = process.env.REQUIRE_APPROVAL === "1" || process.env.REQUIRE_APPROVAL === "true";
 
 const PUBLIC_DIR = path.join(__dirname, "..", "..", "public");
 const DATA_DIR = path.resolve(process.env.DATA_DIR || path.join(__dirname, "..", "..", "data"));
@@ -150,6 +151,7 @@ module.exports = {
   SUBMIT_GLOBAL_MAX,
   SUBMIT_DUPLICATE_TTL_MS,
   PARTICIPANT_COOKIE_NAME,
+  REQUIRE_APPROVAL,
   QUEUE_MAX_LENGTH,
   assertValidConfig
 };

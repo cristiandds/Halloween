@@ -4,7 +4,7 @@ const { Server } = require("socket.io");
 
 const config = require("./config");
 const { createQueueService } = require("./services/queue.service");
-const { selectPhrase } = require("./services/phrase.service");
+const { selectPhrase, getPhrases } = require("./services/phrase.service");
 const { createState } = require("./utils/state");
 const { createPublicRoutes } = require("./routes/public.routes");
 const { createAuthRoutes } = require("./routes/auth.routes");
@@ -75,6 +75,7 @@ function createApp(options = {}) {
     maxLength: config.QUEUE_MAX_LENGTH,
     storage,
     selectPhrase,
+    getPhrases,
     logger: options.logger || console
   });
 
@@ -84,8 +85,10 @@ function createApp(options = {}) {
     displaySeconds: config.DISPLAY_SECONDS
   });
 
+  // Todos los eventos de Socket.IO se emiten aquí: el servicio solo invoca
+  // onChange después de que el nuevo estado quedó confirmado en disco.
   queueService.setHandlers({
-    onFinish: () => {
+    onChange: () => {
       state.broadcast(io);
     }
   });
@@ -148,7 +151,13 @@ function createApp(options = {}) {
     onSessionDestroyed: socketHub.disconnectSession
   }));
   app.use(createScreenRoutes({ config, requireAuth: auth.requireAuth }));
-  app.use(createAdminRoutes({ config, state, requireAuth: auth.requireAuth }));
+  app.use(createAdminRoutes({
+    config,
+    state,
+    queueService,
+    requireAuth: auth.requireAuth,
+    requireCsrf: auth.requireCsrf
+  }));
 
   app.use(express.static(config.PUBLIC_DIR, { index: false, dotfiles: "ignore" }));
 

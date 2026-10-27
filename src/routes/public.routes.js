@@ -109,37 +109,38 @@ function createPublicRoutes({ config, queueService, state }) {
         throw dupErr;
       }
       
-      // Check queue limit - queue service already throws with status 429 if full.
-      // enqueue() only resolves after the participant has been persisted.
+      // Check queue limit - the queue service validates atomically inside its
+      // operation lock and persists before resolving.
+      let entry;
       try {
-        await queueService.enqueue(name);
+        entry = await queueService.addParticipant(name, {
+          state: config.REQUIRE_APPROVAL
+            ? queueService.PARTICIPANT_STATES.PENDING_APPROVAL
+            : queueService.PARTICIPANT_STATES.WAITING
+        });
       } catch (qErr) {
         if (qErr.status) {
           return res.status(qErr.status).json({ error: qErr.message });
         }
         throw qErr;
       }
-      
+
       // Record after successful enqueue
       protection.recordSubmission(req.ip || req.connection?.remoteAddress, participantId);
       protection.recordSubmissionName(participantId, name);
 
-      if (!queueService.getActive()) {
-        await queueService.ensureRunning();
-      }
-
-      const position = queueService.getQueueLength() + (queueService.getActive() ? 1 : 0);
-      try {
-        state.broadcast(req.app.get("io"));
-      } catch (e) {
-        // ignore broadcast errors
-      }
+      const pendingApproval = entry.state === queueService.PARTICIPANT_STATES.PENDING_APPROVAL;
+      const position = pendingApproval ? null : entry.position;
+      const estimatedWaitSeconds = pendingApproval ? null : entry.estimatedWaitSeconds;
 
       res.json({
         ok: true,
-        message: "¡Tu nombre fue enviado!",
+        message: pendingApproval
+          ? "¡Tu nombre fue enviado! Espera la aprobación del organizador."
+          : "¡Tu nombre fue enviado!",
         position,
-        estimatedWaitSeconds: Math.max(0, position - 1) * config.DISPLAY_SECONDS
+        estimatedWaitSeconds,
+        pendingApproval
       });
     } catch (err) {
       if (err.status) {

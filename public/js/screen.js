@@ -6,6 +6,7 @@ const countdown = document.querySelector("#countdown");
 const queueLabel = document.querySelector("#queue");
 let currentId = null;
 let countdownTimer = null;
+let countdownBase = null;
 
 async function setupQR() {
   try {
@@ -31,13 +32,44 @@ async function setupQR() {
   }
 }
 
+function stopCountdown() {
+  clearInterval(countdownTimer);
+  countdownTimer = null;
+  countdownBase = null;
+}
+
+function startCountdown(remainingMs, paused) {
+  stopCountdown();
+  const total = Math.max(0, Number(remainingMs) || 0);
+  const startedAt = Date.now();
+  countdownBase = { total, startedAt, paused };
+
+  const tick = () => {
+    if (!countdownBase) {
+      return;
+    }
+    const elapsed = countdownBase.paused ? 0 : Date.now() - countdownBase.startedAt;
+    const remaining = Math.max(0, Math.ceil((countdownBase.total - elapsed) / 1000));
+    countdown.textContent = countdownBase.paused
+      ? `En pausa · ${remaining}s restantes`
+      : `Siguiente aparición en ${remaining}s`;
+  };
+
+  tick();
+  if (!paused) {
+    countdownTimer = setInterval(tick, 250);
+  }
+}
+
 function showState(state) {
-  queueLabel.textContent = state.waiting ? `En espera: ${state.waiting}` : "";
+  queueLabel.textContent = state.waiting
+    ? `En espera: ${state.waiting}${state.pendingApproval ? ` · Por aprobar: ${state.pendingApproval}` : ""}`
+    : "";
 
   if (!state.active) {
     currentId = null;
-    clearInterval(countdownTimer);
-    countdown.textContent = "";
+    stopCountdown();
+    countdown.textContent = state.paused ? "En pausa" : "";
     reveal.classList.add("hidden");
     waiting.classList.remove("hidden");
     return;
@@ -46,7 +78,7 @@ function showState(state) {
   if (currentId !== state.active.id) {
     currentId = state.active.id;
     person.textContent = state.active.name;
-    phrase.textContent = `«${state.active.phrase}»`;
+    phrase.textContent = state.active.phrase ? `«${state.active.phrase}»` : "";
     waiting.classList.add("hidden");
     reveal.classList.remove("hidden");
     reveal.classList.remove("revealAnim");
@@ -54,17 +86,9 @@ function showState(state) {
     reveal.classList.add("revealAnim");
   }
 
-  const tick = () => {
-    const remaining = Math.max(
-      0,
-      Math.ceil((state.active.startedAt + state.active.durationMs - Date.now()) / 1000)
-    );
-    countdown.textContent = `Siguiente aparición en ${remaining}s`;
-  };
-
-  clearInterval(countdownTimer);
-  tick();
-  countdownTimer = setInterval(tick, 250);
+  // El servidor envía el tiempo restante autoritativo. El navegador solo
+  // representa la cuenta atrás; nunca decide cuándo termina la aparición.
+  startCountdown(state.remainingMs, Boolean(state.paused));
 }
 
 const socket = io();

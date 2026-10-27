@@ -1,27 +1,59 @@
 "use strict";
 
+const PARTICIPANT_STATES = Object.freeze({
+  PENDING_APPROVAL: "pending_approval",
+  WAITING: "waiting",
+  ACTIVE: "active",
+  COMPLETED: "completed",
+  REJECTED: "rejected",
+  SKIPPED: "skipped"
+});
+
+const TERMINAL_STATES = new Set([
+  PARTICIPANT_STATES.COMPLETED,
+  PARTICIPANT_STATES.REJECTED,
+  PARTICIPANT_STATES.SKIPPED
+]);
+
+const DEFAULT_DISPLAY_SECONDS = 15;
+const DEFAULT_QUEUE_MAX_LENGTH = 100;
+const MAX_NAME_LENGTH = 100;
+
 function createQueueService({
   displaySeconds,
-  maxLength = 100,
+  maxLength = DEFAULT_QUEUE_MAX_LENGTH,
   storage,
   selectPhrase,
-  logger = console
+  getPhrases,
+  logger = console,
+  now = Date.now
 } = {}) {
   if (!storage || typeof storage.getState !== "function" || typeof storage.replace !== "function") {
     throw new Error("El servicio de cola requiere un almacenamiento persistente.");
   }
 
+  const numericDisplaySeconds = Number(displaySeconds);
   const effectiveDisplaySeconds =
-    Number.isInteger(displaySeconds) && displaySeconds > 0 ? displaySeconds : 15;
+    Number.isFinite(numericDisplaySeconds) && numericDisplaySeconds > 0
+      ? numericDisplaySeconds
+      : DEFAULT_DISPLAY_SECONDS;
+  const displayMs = Math.round(effectiveDisplaySeconds * 1000);
   const queueMaxLength =
-    Number.isInteger(maxLength) && maxLength > 0 ? maxLength : 100;
+    Number.isInteger(maxLength) && maxLength > 0 ? maxLength : DEFAULT_QUEUE_MAX_LENGTH;
   const safeLogger = logger && typeof logger.error === "function" ? logger : console;
+  const clock = typeof now === "function" ? now : Date.now;
 
   let state = storage.getState();
   let timer = null;
+  let timerActiveId = null;
+  let timerEndsAt = null;
   let handlers = {};
   let operationChain = Promise.resolve();
   let closed = false;
+
+  // ---------------------------------------------------------------------------
+  // Infraestructura: serialización de operaciones y notificaciones.
+  // ---------------------------------------------------------------------------
 
   function withLock(task) {
     const run = operationChain.then(task);
@@ -36,214 +68,888 @@ function createQueueService({
     return JSON.parse(JSON.stringify(value));
   }
 
-  function notifyStateChange() {
-    if (typeof handlers.onFinish === "function") {
-      try {
-        handlers.onFinish();
-      } catch (error) {
-        safeLogger.error("[queue] No se pudo notificar el cambio de estado:", error.message);
-      }
+  function notifyChange() {
+    if (typeof handlers.onChange !== "function") {
+      return;
     }
+    try {
+      handlers.onChange(getSnapshot());
+    } catch (error) {
+      safeLogger.error("[queue] No se pudo notificar el cambio de estado:", error.message);
+    }
+  }
+
+  function createError(message, status) {
+    const error = new Error(message);
+    error.status = status;
+    return error;
+  }
+
+  // ---------------------------------------------------------------------------
+  // Utilidades de participantes.
+  // ---------------------------------------------------------------------------
+
+  function normalizeName(name) {
+    if (typeof name !== "string") {
+      return "";
+    }
+    return name.normalize("NFC").replace(/\s+/g, " ").trim();
+  }
+
+  function participantState(participant, fallback) {
+    if (participant && typeof participant.state === "string" && TERMINAL_STATES.has(participant.state)) {
+      return participant.state;
+    }
+    return fallback;
+  }
+
+  function copyParticipant(participant) {
+    return {
+      id: participant.id,
+      name: participant.name,
+      phrase: typeof participant.phrase === "string" ? participant.phrase : null,
+      state: participant.state,
+      registeredAt: participant.registeredAt ?? participant.submittedAt ?? null
+    };
+  }
+
+  function activeRecord(participant) {
+    return participant ? { ...participant, state: PARTICIPANT_STATES.ACTIVE } : null;
   }
 
   function remainingFor(active) {
     if (!active) {
       return 0;
     }
-    const endsAt =
-      typeof active.endsAt === "number" ? active.endsAt : active.startedAt + active.durationMs;
-    return Math.max(0, endsAt - Date.now());
-  }
-
-  function previousPhrase(draft) {
-    const lastFinished = draft.finishedParticipants[draft.finishedParticipants.length - 1];
-    return lastFinished && typeof lastFinished.phrase === "string" ? lastFinished.phrase : null;
-  }
-
-  function resolvePhrase(draft, next) {
-    if (typeof handlers.onStart === "function") {
-      try {
-        const result = handlers.onStart(next);
-        if (result && typeof result.phrase === "string") {
-          return result.phrase;
-        }
-      } catch (error) {
-        safeLogger.error("[queue] No se pudo seleccionar una frase:", error.message);
+    if (state.pauseState && state.pauseState.paused) {
+      if (typeof state.pauseState.remainingMs === "number") {
+        return Math.max(0, state.pauseState.remainingMs);
+      }
+      if (typeof active.remainingMs === "number") {
+        return Math.max(0, active.remainingMs);
       }
     }
-    if (typeof selectPhrase === "function") {
-      try {
-        const phrase = selectPhrase(previousPhrase(draft));
-        return typeof phrase === "string" ? phrase : null;
-      } catch (error) {
-        safeLogger.error("[queue] No se pudo seleccionar una frase:", error.message);
+    if (typeof active.endsAt === "number") {
+      return Math.max(0, active.endsAt - clock());
+    }
+    if (typeof active.remainingMs === "number") {
+      return Math.max(0, active.remainingMs);
+    }
+    return 0;
+  }
+
+  function lastProjectedPhrase(draft) {
+    const finished = Array.isArray(draft.finishedParticipants) ? draft.finishedParticipants : [];
+    for (let index = finished.length - 1; index >= 0; index -= 1) {
+      const record = finished[index];
+      if (record && typeof record.phrase === "string" && record.startedAt !== null && record.startedAt !== undefined) {
+        return record.phrase;
       }
     }
     return null;
   }
 
-  function startNextInDraft(draft, now) {
-    if (draft.pauseState.paused || draft.activeParticipant) {
+  function phrasePool() {
+    if (typeof getPhrases === "function") {
+      try {
+        const values = getPhrases();
+        if (Array.isArray(values)) {
+          return values.filter((value) => typeof value === "string" && value.length > 0);
+        }
+      } catch (error) {
+        safeLogger.error("[queue] No se pudo obtener el listado de frases:", error.message);
+      }
+    }
+    return [];
+  }
+
+  function choosePhrase(draft) {
+    const previous = lastProjectedPhrase(draft);
+
+    if (typeof handlers.onPhrase === "function") {
+      try {
+        const candidate = handlers.onPhrase(previous);
+        if (typeof candidate === "string") {
+          if (candidate === previous) {
+            const alternatives = phrasePool().filter((phrase) => phrase !== previous);
+            if (alternatives.length > 0) {
+              return alternatives[Math.floor(Math.random() * alternatives.length)];
+            }
+          }
+          return candidate;
+        }
+      } catch (error) {
+        safeLogger.error("[queue] No se pudo seleccionar una frase:", error.message);
+      }
+    }
+
+    if (typeof selectPhrase === "function") {
+      try {
+        const candidate = selectPhrase(previous);
+        if (typeof candidate === "string") {
+          if (candidate === previous) {
+            const alternatives = phrasePool().filter((phrase) => phrase !== previous);
+            if (alternatives.length > 0) {
+              return alternatives[Math.floor(Math.random() * alternatives.length)];
+            }
+          }
+          return candidate;
+        }
+      } catch (error) {
+        safeLogger.error("[queue] No se pudo seleccionar una frase:", error.message);
+      }
+    }
+
+    const pool = phrasePool();
+    if (pool.length > 0) {
+      const alternatives = pool.filter((phrase) => phrase !== previous);
+      const candidates = alternatives.length > 0 ? alternatives : pool;
+      return candidates[Math.floor(Math.random() * candidates.length)];
+    }
+    return null;
+  }
+
+  // ---------------------------------------------------------------------------
+  // Mutaciones sobre un borrador del estado.
+  // ---------------------------------------------------------------------------
+
+  function startNextInDraft(draft, at) {
+    if (!draft || draft.activeParticipant) {
       return false;
     }
-    const next = draft.pendingParticipants.shift();
+    if (draft.pauseState && draft.pauseState.paused) {
+      return false;
+    }
+    const waiting = Array.isArray(draft.pendingParticipants) ? draft.pendingParticipants : [];
+    const next = waiting.shift();
     if (!next) {
       return false;
     }
 
-    const phrase = resolvePhrase(draft, next);
-    const durationMs = effectiveDisplaySeconds * 1000;
+    const phrase = choosePhrase(draft);
+    const endsAt = at + displayMs;
     draft.activeParticipant = {
       id: next.id,
       name: next.name,
       phrase,
-      startedAt: now,
-      durationMs,
-      endsAt: now + durationMs,
+      state: PARTICIPANT_STATES.ACTIVE,
+      registeredAt: next.registeredAt ?? next.submittedAt ?? at,
+      startedAt: at,
+      durationMs: displayMs,
+      endsAt,
       remainingMs: null
     };
-    draft.timers.projectionStartedAt = now;
-    draft.timers.projectionEndsAt = now + durationMs;
-    draft.timers.lastTickAt = now;
+    draft.timers = {
+      ...(draft.timers || {}),
+      projectionStartedAt: at,
+      projectionEndsAt: endsAt,
+      lastTickAt: at
+    };
     return true;
   }
 
-  function finishActiveInDraft(draft, now) {
+  function concludeActiveInDraft(draft, at, outcome) {
     const active = draft.activeParticipant;
     if (!active) {
-      return false;
+      return null;
     }
+
+    const record = {
+      id: active.id,
+      name: active.name,
+      phrase: typeof active.phrase === "string" ? active.phrase : null,
+      state: outcome,
+      registeredAt: active.registeredAt ?? active.submittedAt ?? active.startedAt ?? at,
+      startedAt: active.startedAt ?? null,
+      finishedAt: at,
+      durationMs:
+        typeof active.durationMs === "number" && active.durationMs > 0 ? active.durationMs : displayMs
+    };
 
     draft.activeParticipant = null;
-    draft.timers.projectionStartedAt = null;
-    draft.timers.projectionEndsAt = null;
-    draft.timers.lastTickAt = now;
-    draft.timers.lastFinishedAt = now;
+    draft.timers = {
+      ...(draft.timers || {}),
+      projectionStartedAt: null,
+      projectionEndsAt: null,
+      lastTickAt: at,
+      lastFinishedAt: at
+    };
 
-    if (!draft.finishedParticipants.some((participant) => participant.id === active.id)) {
-      draft.finishedParticipants.push({
-        id: active.id,
-        name: active.name,
-        phrase: active.phrase,
-        startedAt: active.startedAt,
-        finishedAt: now,
-        durationMs: active.durationMs
-      });
+    if (!Array.isArray(draft.finishedParticipants)) {
+      draft.finishedParticipants = [];
     }
-    return true;
+    if (!draft.finishedParticipants.some((participant) => participant && participant.id === active.id)) {
+      draft.finishedParticipants.push(record);
+    }
+    return record;
   }
 
-  function applyCurrentConfig(draft, now) {
-    let changed = false;
-    if (draft.eventConfig.displaySeconds !== effectiveDisplaySeconds) {
-      draft.eventConfig.displaySeconds = effectiveDisplaySeconds;
-      changed = true;
+  function removeById(list, id) {
+    if (!Array.isArray(list)) {
+      return null;
     }
-    if (draft.eventConfig.queueMaxLength !== queueMaxLength) {
-      draft.eventConfig.queueMaxLength = queueMaxLength;
-      changed = true;
+    const index = list.findIndex((participant) => participant && participant.id === id);
+    if (index < 0) {
+      return null;
     }
-    if (changed) {
-      draft.eventConfig.updatedAt = new Date(now).toISOString();
-    }
-    return changed;
+    return list.splice(index, 1)[0] || null;
   }
 
-  function recoverSynchronously() {
-    const now = Date.now();
-    const draft = clone(state);
-    applyCurrentConfig(draft, now);
-
-    if (!draft.pauseState.paused) {
-      const active = draft.activeParticipant;
-      if (active) {
-        if (typeof active.endsAt !== "number") {
-          active.endsAt = active.startedAt + active.durationMs;
-        }
-        if (active.endsAt <= now) {
-          // El servidor se apagó durante o después de la proyección. Se
-          // finaliza exactamente una vez y se continúa con la cola.
-          finishActiveInDraft(draft, now);
-          startNextInDraft(draft, now);
-        } else {
-          draft.timers.projectionStartedAt = active.startedAt;
-          draft.timers.projectionEndsAt = active.endsAt;
-        }
-      } else if (draft.pendingParticipants.length > 0) {
-        startNextInDraft(draft, now);
-      }
+  function recordTerminal(draft, participant, outcome, at, { started = false } = {}) {
+    if (!Array.isArray(draft.finishedParticipants)) {
+      draft.finishedParticipants = [];
     }
-
-    const before = JSON.stringify(state);
-    const after = JSON.stringify(draft);
-    if (before !== after) {
-      state = storage.replaceSync(draft);
-    } else {
-      state = draft;
-    }
-  }
-
-  function scheduleTimer() {
-    clearTimer();
-    if (closed || state.pauseState.paused || !state.activeParticipant) {
+    if (draft.finishedParticipants.some((item) => item && item.id === participant.id)) {
       return;
     }
-
-    const remaining = remainingFor(state.activeParticipant);
-    timer = setTimeout(() => {
-      timer = null;
-      finishActive().catch((error) => {
-        safeLogger.error("[queue] No se pudo finalizar la proyección:", error.message);
-        if (closed) {
-          return;
-        }
-        // Se reintenta sin confirmar ni alterar el estado en memoria. Si el
-        // proceso se reinicia, la recuperación volverá a calcular el tiempo.
-        timer = setTimeout(scheduleTimer, 2000);
-        if (typeof timer.unref === "function") {
-          timer.unref();
-        }
-      });
-    }, remaining);
-    if (typeof timer.unref === "function") {
-      timer.unref();
-    }
+    draft.finishedParticipants.push({
+      id: participant.id,
+      name: participant.name,
+      phrase: typeof participant.phrase === "string" ? participant.phrase : null,
+      state: outcome,
+      registeredAt: participant.registeredAt ?? participant.submittedAt ?? at,
+      startedAt: started ? participant.startedAt ?? at : null,
+      finishedAt: at,
+      durationMs: started && typeof participant.durationMs === "number" ? participant.durationMs : null
+    });
   }
+
+  function findWaiting(draft, id) {
+    const waiting = Array.isArray(draft.pendingParticipants) ? draft.pendingParticipants : [];
+    const index = waiting.findIndex((participant) => participant && participant.id === id);
+    return index >= 0 ? { list: waiting, index, participant: waiting[index] } : null;
+  }
+
+  function findApproval(draft, id) {
+    const approval = Array.isArray(draft.moderationPendingParticipants)
+      ? draft.moderationPendingParticipants
+      : [];
+    const index = approval.findIndex((participant) => participant && participant.id === id);
+    return index >= 0 ? { list: approval, index, participant: approval[index] } : null;
+  }
+
+  function startNextIfIdle(draft, at) {
+    if (!draft.activeParticipant && !(draft.pauseState && draft.pauseState.paused)) {
+      return startNextInDraft(draft, at);
+    }
+    return false;
+  }
+
+  async function persist(draft) {
+    state = await storage.replace(draft);
+    return state;
+  }
+
+  // ---------------------------------------------------------------------------
+  // Temporizador único controlado por el servidor.
+  // ---------------------------------------------------------------------------
 
   function clearTimer() {
     if (timer) {
       clearTimeout(timer);
       timer = null;
     }
+    timerActiveId = null;
+    timerEndsAt = null;
   }
 
+  function scheduleTimer(delayOverride) {
+    clearTimer();
+    if (closed || !state.activeParticipant) {
+      return;
+    }
+    if (state.pauseState && state.pauseState.paused) {
+      return;
+    }
+
+    const active = state.activeParticipant;
+    const remaining = remainingFor(active);
+    const delay = typeof delayOverride === "number" ? Math.max(0, delayOverride) : Math.max(0, remaining);
+
+    timerActiveId = active.id;
+    timerEndsAt = active.endsAt;
+    timer = setTimeout(() => {
+      timer = null;
+      const expectedId = timerActiveId;
+      const expectedEndsAt = timerEndsAt;
+      timerActiveId = null;
+      timerEndsAt = null;
+      finishDue(expectedId, expectedEndsAt).catch((error) => {
+        safeLogger.error("[queue] No se pudo finalizar la proyección:", error.message);
+        if (closed) {
+          return;
+        }
+        // El estado confirmado sigue intacto. Reintenta sin duplicar la
+        // aparición; el temporizador principal sigue siendo único.
+        scheduleTimer(2000);
+      });
+    }, delay);
+
+    if (typeof timer.unref === "function") {
+      timer.unref();
+    }
+  }
+
+  function finishDue(expectedId, expectedEndsAt) {
+    return withLock(async () => {
+      if (closed) {
+        return getLocalState();
+      }
+      const active = state.activeParticipant;
+      if (!active || active.id !== expectedId) {
+        return getLocalState();
+      }
+      if (state.pauseState && state.pauseState.paused) {
+        return getLocalState();
+      }
+
+      const at = clock();
+      const endsAt =
+        typeof expectedEndsAt === "number"
+          ? expectedEndsAt
+          : typeof active.endsAt === "number"
+            ? active.endsAt
+            : at;
+
+      if (at + 5 < endsAt) {
+        // El temporizador se adelantó unos milisegundos: espera el resto.
+        scheduleTimer(endsAt - at);
+        return getLocalState();
+      }
+
+      const draft = clone(state);
+      concludeActiveInDraft(draft, at, PARTICIPANT_STATES.COMPLETED);
+      startNextIfIdle(draft, at);
+      await persist(draft);
+      scheduleTimer();
+      notifyChange();
+      return getLocalState();
+    });
+  }
+
+  // ---------------------------------------------------------------------------
+  // Recuperación después de un reinicio.
+  // ---------------------------------------------------------------------------
+
+  function recoverSynchronously() {
+    const at = clock();
+    const draft = clone(state);
+
+    if (Array.isArray(draft.pendingParticipants)) {
+      for (const participant of draft.pendingParticipants) {
+        if (participant && participant.state !== PARTICIPANT_STATES.WAITING) {
+          participant.state = PARTICIPANT_STATES.WAITING;
+        }
+      }
+    }
+    if (Array.isArray(draft.moderationPendingParticipants)) {
+      for (const participant of draft.moderationPendingParticipants) {
+        if (participant && participant.state !== PARTICIPANT_STATES.PENDING_APPROVAL) {
+          participant.state = PARTICIPANT_STATES.PENDING_APPROVAL;
+        }
+      }
+    }
+
+    if (draft.pauseState && draft.pauseState.paused) {
+      const active = draft.activeParticipant;
+      if (active) {
+        if (typeof draft.pauseState.remainingMs !== "number") {
+          const fallback =
+            typeof active.remainingMs === "number"
+              ? active.remainingMs
+              : typeof active.endsAt === "number"
+                ? Math.max(0, active.endsAt - at)
+                : displayMs;
+          draft.pauseState.remainingMs = fallback;
+        }
+        active.remainingMs = draft.pauseState.remainingMs;
+        active.endsAt = null;
+      }
+    } else {
+      const active = draft.activeParticipant;
+      if (active) {
+        if (typeof active.endsAt !== "number") {
+          const projectedAt =
+            typeof active.remainingMs === "number"
+              ? at + active.remainingMs
+              : (active.startedAt ?? at) + (active.durationMs ?? displayMs);
+          active.endsAt = projectedAt;
+        }
+        if (active.endsAt <= at) {
+          concludeActiveInDraft(draft, at, PARTICIPANT_STATES.COMPLETED);
+          startNextInDraft(draft, at);
+        } else {
+          draft.timers = {
+            ...(draft.timers || {}),
+            projectionStartedAt: active.startedAt,
+            projectionEndsAt: active.endsAt,
+            lastTickAt: at
+          };
+        }
+      } else if (
+        Array.isArray(draft.pendingParticipants) &&
+        draft.pendingParticipants.length > 0
+      ) {
+        startNextInDraft(draft, at);
+      }
+    }
+
+    const changed = JSON.stringify(state) !== JSON.stringify(draft);
+    if (changed) {
+      try {
+        state = storage.replaceSync(draft);
+      } catch (error) {
+        safeLogger.error("[queue] No se pudo persistir la recuperación:", error.message);
+        state = draft;
+      }
+    } else {
+      state = draft;
+    }
+  }
+
+  // ---------------------------------------------------------------------------
+  // Operaciones públicas del motor.
+  // ---------------------------------------------------------------------------
+
+  function addParticipant(name, options = {}) {
+    return withLock(async () => {
+      const normalized = normalizeName(name);
+      if (!normalized) {
+        throw createError("Nombre inválido.", 400);
+      }
+      if (normalized.length > MAX_NAME_LENGTH) {
+        throw createError("El nombre es demasiado largo.", 400);
+      }
+
+      const at = clock();
+      const draft = clone(state);
+      const requestedState =
+        options.state === PARTICIPANT_STATES.PENDING_APPROVAL
+          ? PARTICIPANT_STATES.PENDING_APPROVAL
+          : PARTICIPANT_STATES.WAITING;
+
+      const waiting = Array.isArray(draft.pendingParticipants) ? draft.pendingParticipants : [];
+      const approval = Array.isArray(draft.moderationPendingParticipants)
+        ? draft.moderationPendingParticipants
+        : [];
+
+      if (requestedState === PARTICIPANT_STATES.WAITING && waiting.length >= queueMaxLength) {
+        throw createError("La cola está llena por ahora. Inténtalo en un momento.", 429);
+      }
+      if (
+        requestedState === PARTICIPANT_STATES.PENDING_APPROVAL &&
+        waiting.length + approval.length >= queueMaxLength
+      ) {
+        throw createError("La cola está llena por ahora. Inténtalo en un momento.", 429);
+      }
+
+      const participant = {
+        id: draft.nextId,
+        name: normalized,
+        phrase: typeof options.phrase === "string" ? options.phrase : null,
+        state: requestedState,
+        registeredAt: at,
+        submittedAt: at
+      };
+      draft.nextId += 1;
+
+      if (requestedState === PARTICIPANT_STATES.PENDING_APPROVAL) {
+        draft.moderationPendingParticipants = approval;
+        approval.push(participant);
+      } else {
+        draft.pendingParticipants = waiting;
+        waiting.push(participant);
+        startNextIfIdle(draft, at);
+      }
+
+      await persist(draft);
+      scheduleTimer();
+      notifyChange();
+      return getEstimate(participant.id);
+    });
+  }
+
+  async function enqueue(name) {
+    // Compatibilidad con la API anterior: devuelve la longitud de la cola.
+    await addParticipant(name, { state: PARTICIPANT_STATES.WAITING });
+    return getQueueLength();
+  }
+
+  async function ensureRunning() {
+    return startNext();
+  }
+
+  function approveParticipant(id) {
+    return withLock(async () => {
+      const at = clock();
+      const draft = clone(state);
+      const found = findApproval(draft, id);
+      if (found) {
+        const waiting = Array.isArray(draft.pendingParticipants) ? draft.pendingParticipants : [];
+        if (waiting.length >= queueMaxLength) {
+          throw createError("La cola está llena por ahora. Inténtalo en un momento.", 429);
+        }
+        const [participant] = found.list.splice(found.index, 1);
+        participant.state = PARTICIPANT_STATES.WAITING;
+        draft.pendingParticipants = waiting;
+        waiting.push(participant);
+        startNextIfIdle(draft, at);
+      }
+      await persist(draft);
+      scheduleTimer();
+      notifyChange();
+      return getLocalState();
+    });
+  }
+
+  function rejectParticipant(id) {
+    return withLock(async () => {
+      const at = clock();
+      const draft = clone(state);
+
+      if (draft.activeParticipant && draft.activeParticipant.id === id) {
+        concludeActiveInDraft(draft, at, PARTICIPANT_STATES.REJECTED);
+        startNextIfIdle(draft, at);
+      } else {
+        const approval = findApproval(draft, id);
+        const waiting = findWaiting(draft, id);
+        const found = approval || waiting;
+        if (found) {
+          const [participant] = found.list.splice(found.index, 1);
+          participant.state = PARTICIPANT_STATES.REJECTED;
+          recordTerminal(draft, participant, PARTICIPANT_STATES.REJECTED, at);
+        }
+      }
+
+      await persist(draft);
+      scheduleTimer();
+      notifyChange();
+      return getLocalState();
+    });
+  }
+
+  function skipParticipant(id) {
+    return withLock(async () => {
+      const at = clock();
+      const draft = clone(state);
+      let targetId = id;
+
+      if (targetId === undefined || targetId === null) {
+        if (draft.activeParticipant) {
+          targetId = draft.activeParticipant.id;
+        } else if (Array.isArray(draft.pendingParticipants) && draft.pendingParticipants.length > 0) {
+          targetId = draft.pendingParticipants[0].id;
+        }
+      }
+
+      if (draft.activeParticipant && draft.activeParticipant.id === targetId) {
+        concludeActiveInDraft(draft, at, PARTICIPANT_STATES.SKIPPED);
+        startNextIfIdle(draft, at);
+      } else if (targetId !== undefined && targetId !== null) {
+        const approval = findApproval(draft, targetId);
+        const waiting = findWaiting(draft, targetId);
+        const found = approval || waiting;
+        if (found) {
+          const [participant] = found.list.splice(found.index, 1);
+          participant.state = PARTICIPANT_STATES.SKIPPED;
+          recordTerminal(draft, participant, PARTICIPANT_STATES.SKIPPED, at);
+        }
+      }
+
+      await persist(draft);
+      scheduleTimer();
+      notifyChange();
+      return getLocalState();
+    });
+  }
+
+  function finishParticipant(id) {
+    return withLock(async () => {
+      if (!state.activeParticipant) {
+        return getLocalState();
+      }
+      if (
+        id !== undefined &&
+        id !== null &&
+        state.activeParticipant.id !== id
+      ) {
+        return getLocalState();
+      }
+
+      const at = clock();
+      const draft = clone(state);
+      concludeActiveInDraft(draft, at, PARTICIPANT_STATES.COMPLETED);
+      startNextIfIdle(draft, at);
+      await persist(draft);
+      scheduleTimer();
+      notifyChange();
+      return getLocalState();
+    });
+  }
+
+  function startNext() {
+    return withLock(async () => {
+      if (closed) {
+        return getLocalState();
+      }
+      if (state.activeParticipant) {
+        return getLocalState();
+      }
+      if (state.pauseState && state.pauseState.paused) {
+        return getLocalState();
+      }
+      if (!Array.isArray(state.pendingParticipants) || state.pendingParticipants.length === 0) {
+        return getLocalState();
+      }
+
+      const at = clock();
+      const draft = clone(state);
+      if (!startNextInDraft(draft, at)) {
+        return getLocalState();
+      }
+      await persist(draft);
+      scheduleTimer();
+      notifyChange();
+      return getLocalState();
+    });
+  }
+
+  function pause() {
+    return withLock(async () => {
+      if (state.pauseState && state.pauseState.paused) {
+        return getLocalState();
+      }
+
+      const at = clock();
+      const draft = clone(state);
+      const active = draft.activeParticipant;
+      const remainingMs = active ? remainingFor(active) : null;
+
+      if (active) {
+        active.remainingMs = remainingMs;
+        active.endsAt = null;
+        draft.timers = {
+          ...(draft.timers || {}),
+          projectionEndsAt: null,
+          lastTickAt: at
+        };
+      }
+
+      draft.pauseState = {
+        paused: true,
+        pausedAt: at,
+        resumedAt: null,
+        remainingMs
+      };
+
+      await persist(draft);
+      clearTimer();
+      notifyChange();
+      return getLocalState();
+    });
+  }
+
+  function resume() {
+    return withLock(async () => {
+      if (!(state.pauseState && state.pauseState.paused)) {
+        return getLocalState();
+      }
+
+      const at = clock();
+      const draft = clone(state);
+      const previousPause = draft.pauseState || {};
+      const active = draft.activeParticipant;
+
+      draft.pauseState = {
+        paused: false,
+        pausedAt: previousPause.pausedAt ?? null,
+        resumedAt: at,
+        remainingMs: null
+      };
+
+      if (active) {
+        const remainingMs =
+          typeof previousPause.remainingMs === "number"
+            ? previousPause.remainingMs
+            : typeof active.remainingMs === "number"
+              ? active.remainingMs
+              : typeof active.endsAt === "number"
+                ? Math.max(0, active.endsAt - at)
+                : displayMs;
+
+        if (remainingMs <= 0) {
+          concludeActiveInDraft(draft, at, PARTICIPANT_STATES.COMPLETED);
+          startNextInDraft(draft, at);
+        } else {
+          active.endsAt = at + remainingMs;
+          active.remainingMs = null;
+          draft.timers = {
+            ...(draft.timers || {}),
+            projectionStartedAt: active.startedAt,
+            projectionEndsAt: at + remainingMs,
+            lastTickAt: at
+          };
+        }
+      } else {
+        startNextInDraft(draft, at);
+      }
+
+      await persist(draft);
+      scheduleTimer();
+      notifyChange();
+      return getLocalState();
+    });
+  }
+
+  // ---------------------------------------------------------------------------
+  // Consultas.
+  // ---------------------------------------------------------------------------
+
   function getActive() {
-    return state.activeParticipant;
+    return activeRecord(state.activeParticipant);
   }
 
   function getQueueLength() {
-    return state.pendingParticipants.length;
+    return Array.isArray(state.pendingParticipants) ? state.pendingParticipants.length : 0;
+  }
+
+  function getPendingApprovalCount() {
+    return Array.isArray(state.moderationPendingParticipants)
+      ? state.moderationPendingParticipants.length
+      : 0;
   }
 
   function getQueuePreview(limit) {
-    const n = typeof limit === "number" ? limit : 5;
-    return state.pendingParticipants.slice(0, n).map((item) => item.name);
+    const n = Number.isInteger(limit) && limit > 0 ? limit : 5;
+    const waiting = Array.isArray(state.pendingParticipants) ? state.pendingParticipants : [];
+    return waiting.slice(0, n).map((participant) => participant.name);
+  }
+
+  function getQueueItems(limit) {
+    const n = Number.isInteger(limit) && limit > 0 ? limit : 20;
+    const waiting = Array.isArray(state.pendingParticipants) ? state.pendingParticipants : [];
+    return waiting.slice(0, n).map((participant) => ({
+      id: participant.id,
+      name: participant.name,
+      state: participant.state,
+      registeredAt: participant.registeredAt ?? participant.submittedAt ?? null
+    }));
+  }
+
+  function getPendingApprovalPreview(limit) {
+    const n = Number.isInteger(limit) && limit > 0 ? limit : 5;
+    const approval = Array.isArray(state.moderationPendingParticipants)
+      ? state.moderationPendingParticipants
+      : [];
+    return approval.slice(0, n).map((participant) => participant.name);
+  }
+
+  function getPendingApprovalItems(limit) {
+    const n = Number.isInteger(limit) && limit > 0 ? limit : 20;
+    const approval = Array.isArray(state.moderationPendingParticipants)
+      ? state.moderationPendingParticipants
+      : [];
+    return approval.slice(0, n).map((participant) => ({
+      id: participant.id,
+      name: participant.name,
+      state: participant.state,
+      registeredAt: participant.registeredAt ?? participant.submittedAt ?? null
+    }));
+  }
+
+  function getParticipants() {
+    const waiting = Array.isArray(state.pendingParticipants) ? state.pendingParticipants : [];
+    const approval = Array.isArray(state.moderationPendingParticipants)
+      ? state.moderationPendingParticipants
+      : [];
+    const finished = Array.isArray(state.finishedParticipants) ? state.finishedParticipants : [];
+    return [
+      ...(state.activeParticipant ? [{ ...state.activeParticipant }] : []),
+      ...waiting.map((participant) => ({ ...participant })),
+      ...approval.map((participant) => ({ ...participant })),
+      ...finished.map((participant) => ({ ...participant }))
+    ];
+  }
+
+  function getParticipant(id) {
+    return getParticipants().find((participant) => participant.id === id) || null;
   }
 
   function getRemainingMs() {
-    if (!state.activeParticipant) {
-      return 0;
-    }
-    if (state.pauseState.paused) {
-      return typeof state.pauseState.remainingMs === "number"
-        ? Math.max(0, state.pauseState.remainingMs)
-        : remainingFor(state.activeParticipant);
-    }
     return remainingFor(state.activeParticipant);
   }
 
   function getFinishedCount() {
-    return state.finishedParticipants.length;
+    return Array.isArray(state.finishedParticipants) ? state.finishedParticipants.length : 0;
+  }
+
+  function isPaused() {
+    return Boolean(state.pauseState && state.pauseState.paused);
+  }
+
+  function getMode() {
+    if (state.activeParticipant) {
+      return isPaused() ? "paused" : "active";
+    }
+    return getQueueLength() > 0 ? "waiting" : "qr";
+  }
+
+  function getEstimate(participantId) {
+    const active = state.activeParticipant;
+    if (active && active.id === participantId) {
+      return {
+        participantId,
+        state: PARTICIPANT_STATES.ACTIVE,
+        position: 1,
+        estimatedWaitSeconds: 0,
+        estimatedWaitMs: 0
+      };
+    }
+
+    const waiting = Array.isArray(state.pendingParticipants) ? state.pendingParticipants : [];
+    const index = waiting.findIndex((participant) => participant && participant.id === participantId);
+    if (index < 0) {
+      return {
+        participantId,
+        state: null,
+        position: null,
+        estimatedWaitSeconds: null,
+        estimatedWaitMs: null
+      };
+    }
+
+    const activeOffset = active ? 1 : 0;
+    const position = activeOffset + index + 1;
+    const activeRemaining = active ? remainingFor(active) : 0;
+    const estimatedWaitMs = activeRemaining + index * displayMs;
+    return {
+      participantId,
+      state: PARTICIPANT_STATES.WAITING,
+      position,
+      estimatedWaitSeconds: Math.ceil(estimatedWaitMs / 1000),
+      estimatedWaitMs
+    };
+  }
+
+  function getPosition(participantId) {
+    return getEstimate(participantId).position;
+  }
+
+  function getEstimatedWaitSeconds(participantId) {
+    return getEstimate(participantId).estimatedWaitSeconds;
+  }
+
+  function getSnapshot() {
+    return {
+      mode: getMode(),
+      paused: isPaused(),
+      remainingMs: getRemainingMs(),
+      active: getActive(),
+      waiting: getQueueLength(),
+      pendingApproval: getPendingApprovalCount(),
+      displaySeconds: effectiveDisplaySeconds,
+      serverTime: clock()
+    };
   }
 
   function getState() {
@@ -252,154 +958,6 @@ function createQueueService({
 
   function getLocalState() {
     return clone(state);
-  }
-
-  function enqueue(name) {
-    return withLock(async () => {
-      if (state.pendingParticipants.length >= queueMaxLength) {
-        const error = new Error("La cola está llena por ahora. Inténtalo en un momento.");
-        error.status = 429;
-        throw error;
-      }
-
-      const now = Date.now();
-      const draft = clone(state);
-      const participant = {
-        id: draft.nextId,
-        name,
-        phrase: null,
-        submittedAt: now
-      };
-      draft.nextId += 1;
-      draft.pendingParticipants.push(participant);
-      applyCurrentConfig(draft, now);
-      startNextInDraft(draft, now);
-
-      state = await storage.replace(draft);
-      scheduleTimer();
-      return state.pendingParticipants.length;
-    });
-  }
-
-  function ensureRunning() {
-    return withLock(async () => {
-      if (closed || state.pauseState.paused || state.activeParticipant) {
-        return;
-      }
-      if (state.pendingParticipants.length === 0) {
-        return;
-      }
-
-      const now = Date.now();
-      const draft = clone(state);
-      applyCurrentConfig(draft, now);
-      if (!startNextInDraft(draft, now)) {
-        return;
-      }
-      state = await storage.replace(draft);
-      scheduleTimer();
-      notifyStateChange();
-    });
-  }
-
-  function finishActive() {
-    return withLock(async () => {
-      if (!state.activeParticipant) {
-        return getLocalState();
-      }
-
-      const now = Date.now();
-      const draft = clone(state);
-      finishActiveInDraft(draft, now);
-      if (!draft.pauseState.paused) {
-        startNextInDraft(draft, now);
-      }
-      applyCurrentConfig(draft, now);
-
-      state = await storage.replace(draft);
-      scheduleTimer();
-      notifyStateChange();
-      return getLocalState();
-    });
-  }
-
-  function startNext() {
-    return ensureRunning();
-  }
-
-  function pause() {
-    return withLock(async () => {
-      if (state.pauseState.paused) {
-        return getLocalState();
-      }
-
-      const now = Date.now();
-      const draft = clone(state);
-      const active = draft.activeParticipant;
-      const remainingMs = active ? remainingFor(active) : null;
-
-      if (active) {
-        active.remainingMs = remainingMs;
-        active.endsAt = null;
-        draft.timers.projectionEndsAt = null;
-        draft.timers.lastTickAt = now;
-      }
-      draft.pauseState = {
-        paused: true,
-        pausedAt: now,
-        resumedAt: null,
-        remainingMs
-      };
-
-      state = await storage.replace(draft);
-      clearTimer();
-      notifyStateChange();
-      return getLocalState();
-    });
-  }
-
-  function resume() {
-    return withLock(async () => {
-      if (!state.pauseState.paused) {
-        return getLocalState();
-      }
-
-      const now = Date.now();
-      const draft = clone(state);
-      const previousPause = draft.pauseState;
-      draft.pauseState = {
-        paused: false,
-        pausedAt: previousPause.pausedAt,
-        resumedAt: now,
-        remainingMs: null
-      };
-
-      if (draft.activeParticipant) {
-        const remainingMs =
-          typeof previousPause.remainingMs === "number"
-            ? previousPause.remainingMs
-            : remainingFor(draft.activeParticipant);
-
-        if (remainingMs <= 0) {
-          finishActiveInDraft(draft, now);
-          startNextInDraft(draft, now);
-        } else {
-          draft.activeParticipant.startedAt = now;
-          draft.activeParticipant.endsAt = now + remainingMs;
-          draft.activeParticipant.remainingMs = null;
-          draft.timers.projectionStartedAt = now;
-          draft.timers.projectionEndsAt = now + remainingMs;
-          draft.timers.lastTickAt = now;
-        }
-      } else {
-        startNextInDraft(draft, now);
-      }
-
-      state = await storage.replace(draft);
-      scheduleTimer();
-      notifyStateChange();
-      return getLocalState();
-    });
   }
 
   function setHandlers(nextHandlers = {}) {
@@ -420,24 +978,51 @@ function createQueueService({
   scheduleTimer();
 
   return {
-    getActive,
-    getQueueLength,
-    getQueuePreview,
-    getRemainingMs,
-    getFinishedCount,
-    getState,
-    getLocalState,
-    enqueue,
-    ensureRunning,
+    PARTICIPANT_STATES,
+    addParticipant,
+    approveParticipant,
+    rejectParticipant,
     startNext,
-    finishActive,
     pause,
     resume,
+    skipParticipant,
+    finishParticipant,
+    enqueue,
+    ensureRunning,
+    getActive,
+    getQueueLength,
+    getPendingApprovalCount,
+    getQueuePreview,
+    getQueueItems,
+    getPendingApprovalPreview,
+    getPendingApprovalItems,
+    getParticipants,
+    getParticipant,
+    getRemainingMs,
+    getFinishedCount,
+    isPaused,
+    getMode,
+    getEstimate,
+    getPosition,
+    getEstimatedWaitSeconds,
+    getSnapshot,
+    getState,
+    getLocalState,
     clearTimer,
     setHandlers,
     flush,
-    close
+    close,
+    // Alias cortos para integraciones que usan la API anterior.
+    add: addParticipant,
+    approve: approveParticipant,
+    reject: rejectParticipant,
+    skip: skipParticipant,
+    finish: finishParticipant,
+    next: startNext
   };
 }
 
-module.exports = { createQueueService };
+module.exports = {
+  createQueueService,
+  PARTICIPANT_STATES
+};
