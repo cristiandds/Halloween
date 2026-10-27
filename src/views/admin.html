@@ -1,7 +1,8 @@
 <!doctype html>
 <html lang="es">
 <head>
-<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
 <meta name="robots" content="noindex,nofollow">
 <title>Panel privado</title>
 <script src="/socket.io/socket.io.js"></script>
@@ -16,38 +17,77 @@
 </div>
 <button id="logout" class="ghost" type="button">Cerrar sesión</button>
 </header>
+
 <section class="actions">
 <a class="button" href="/screen" target="_blank" rel="noopener">Abrir pantalla</a>
 <a class="button secondary" href="/join" target="_blank" rel="noopener">Abrir formulario</a>
 <button id="refresh" class="secondary" type="button">Actualizar estado</button>
 </section>
+
 <section class="stats">
+<div class="stat"><span>Total participantes</span><strong id="total-participants">—</strong></div>
 <div class="stat"><span>En espera</span><strong id="waiting">—</strong></div>
 <div class="stat"><span>Por aprobar</span><strong id="pending-approval">—</strong></div>
+<div class="stat"><span>Participante actualmente proyectado</span><strong id="active-now">—</strong></div>
 <div class="stat"><span>Duración</span><strong id="duration">—</strong></div>
-<div class="stat"><span>Restante</span><strong id="remaining">—</strong></div>
-<div class="stat"><span>Estado</span><strong id="mode">—</strong></div>
+<div class="stat"><span>Tiempo restante</span><strong id="remaining">—</strong></div>
+<div class="stat"><span>Estado del sistema</span><strong id="mode">—</strong></div>
+<div class="stat"><span>Estado de conexión</span><strong id="connection">CONECTADO</strong></div>
+<div class="stat"><span>Inscripciones</span><strong id="inscriptions">ABIERTAS</strong></div>
 </section>
+
 <section class="actions">
 <button id="next" type="button">Iniciar siguiente</button>
-<button id="pause" class="secondary" type="button">Pausar</button>
+<button id="pause" class="secondary" type="button">Pausar proyección</button>
 <button id="resume" class="secondary" type="button">Reanudar</button>
-<button id="skip" class="secondary" type="button">Saltar actual</button>
+<button id="skip" class="secondary" type="button">Saltar participante</button>
 <button id="finish" class="secondary" type="button">Finalizar actual</button>
+<button id="open-inscriptions" class="secondary" type="button">Abrir inscripciones</button>
+<button id="close-inscriptions" class="secondary" type="button">Cerrar inscripciones</button>
 </section>
+
 <section class="card">
 <h2>Ahora en pantalla</h2>
 <p id="active-name" class="active-name">Nadie</p>
 <p id="active-phrase" class="phrase"></p>
 </section>
+
 <section class="card">
-<h2>Próximos nombres</h2>
-<ol id="preview"><li class="empty">Sin nombres en cola</li></ol>
+<h2>Tabla de participantes</h2>
+<div class="table-wrap">
+<table class="participants-table">
+<thead>
+<tr>
+<th>ID</th>
+<th>Nombre</th>
+<th>Estado</th>
+<th>Fecha de registro</th>
+<th>Posición</th>
+<th>Acciones</th>
+</tr>
+</thead>
+<tbody id="participants-tbody">
+<tr><td colspan="6" class="empty">Sin participantes</td></tr>
+</tbody>
+</table>
+</div>
 </section>
+
+<section class="card">
+<h2>Próximos nombres (Cola)</h2>
+<ol id="preview"><li class="empty">Sin nombres en cola</li></ol>
+<div class="reorder">
+<label>Reordenar cola (IDs separados por coma):</label>
+<input id="reorder-input" type="text" placeholder="ej: 2,1,3">
+<button id="reorder-btn" class="secondary" type="button">Reordenar cola</button>
+</div>
+</section>
+
 <section class="card">
 <h2>Pendientes de aprobación</h2>
 <ul id="approval-list" class="approval-list"><li class="empty">Sin solicitudes pendientes</li></ul>
 </section>
+
 <div id="message" class="message" role="status" aria-live="polite"></div>
 </main>
 <script src="/js/admin.js"></script>

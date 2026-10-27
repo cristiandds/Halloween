@@ -17,6 +17,17 @@ function createState({ queueService, phraseService, displaySeconds }) {
   function privateState() {
     const snapshot = queueService.getSnapshot();
     const active = snapshot.active;
+    let inscriptions = { open: true };
+    try {
+      if (typeof queueService.getInscriptionsStatus === "function") {
+        inscriptions = queueService.getInscriptionsStatus();
+      } else if (queueService.getLocalState) {
+        const s = queueService.getLocalState();
+        inscriptions = { open: s.inscriptionsOpen !== false, paused: s.inscriptionsPaused === true };
+      }
+    } catch (e) {
+      inscriptions = { open: true };
+    }
     return {
       active: active
         ? {
@@ -37,7 +48,11 @@ function createState({ queueService, phraseService, displaySeconds }) {
       remainingMs: snapshot.remainingMs,
       serverTime: snapshot.serverTime,
       finishedCount: queueService.getFinishedCount(),
-      states: queueService.PARTICIPANT_STATES
+      states: queueService.PARTICIPANT_STATES,
+      inscriptions,
+      inscriptionsOpen: inscriptions.open,
+      systemStatus: "ok",
+      connectionStatus: "connected"
     };
   }
 

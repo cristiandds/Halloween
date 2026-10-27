@@ -952,6 +952,86 @@ function createQueueService({
     };
   }
 
+  function getInscriptionsStatus() {
+    const s = state || storage.getState();
+    return {
+      open: s.inscriptionsOpen !== false,
+      paused: s.inscriptionsPaused === true
+    };
+  }
+
+  async function setInscriptionsOpen(open) {
+    return withLock(async () => {
+      const draft = clone(state);
+      draft.inscriptionsOpen = open === true;
+      await persist(draft);
+      notifyChange();
+      return getLocalState();
+    });
+  }
+
+  async function toggleInscriptions(open) {
+    return setInscriptionsOpen(open);
+  }
+
+  async function removeParticipant(id) {
+    return withLock(async () => {
+      const at = clock();
+      const draft = clone(state);
+      let removed = null;
+
+      if (draft.activeParticipant && draft.activeParticipant.id === id) {
+        removed = { ...draft.activeParticipant };
+        concludeActiveInDraft(draft, at, PARTICIPANT_STATES.REJECTED);
+        startNextIfIdle(draft, at);
+      } else {
+        const approval = findApproval(draft, id);
+        const waiting = findWaiting(draft, id);
+        const found = approval || waiting;
+        if (found) {
+          const [participant] = found.list.splice(found.index, 1);
+          participant.state = PARTICIPANT_STATES.REJECTED;
+          removed = { ...participant };
+          recordTerminal(draft, participant, PARTICIPANT_STATES.REJECTED, at);
+        }
+      }
+
+      await persist(draft);
+      scheduleTimer();
+      notifyChange();
+      return getLocalState();
+    });
+  }
+
+  async function reorderQueue(order) {
+    return withLock(async () => {
+      if (!Array.isArray(order)) {
+        return getLocalState();
+      }
+      const draft = clone(state);
+      const waiting = Array.isArray(draft.pendingParticipants) ? draft.pendingParticipants : [];
+      const map = new Map(waiting.map((p) => [p.id, p]));
+      const newQueue = [];
+      for (const id of order) {
+        const pid = typeof id === "number" ? id : Number.parseInt(id, 10);
+        if (Number.isInteger(pid) && map.has(pid)) {
+          newQueue.push(map.get(pid));
+          map.delete(pid);
+        }
+      }
+      for (const p of waiting) {
+        if (map.has(p.id)) {
+          newQueue.push(p);
+        }
+      }
+      draft.pendingParticipants = newQueue;
+      draft.waiting = newQueue.map((p) => ({ ...p }));
+      await persist(draft);
+      notifyChange();
+      return getLocalState();
+    });
+  }
+
   function getState() {
     return storage.getState();
   }
@@ -987,6 +1067,13 @@ function createQueueService({
     resume,
     skipParticipant,
     finishParticipant,
+    removeParticipant,
+    deleteParticipant: removeParticipant,
+    reorderQueue,
+    moveParticipant: reorderQueue,
+    setInscriptionsOpen,
+    toggleInscriptions,
+    getInscriptionsStatus,
     enqueue,
     ensureRunning,
     getActive,

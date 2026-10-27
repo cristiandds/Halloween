@@ -137,6 +137,100 @@ function createAdminRoutes({ config, state, queueService, requireAuth, requireCs
     })
   );
 
+  router.post(
+    "/api/admin/queue/remove",
+    ...operators,
+    command(async (req) => {
+      const id = parseId(req.body?.id);
+      if (!id) {
+        const error = new Error("Falta el identificador del participante.");
+        error.status = 400;
+        throw error;
+      }
+      if (typeof queueService.removeParticipant === "function") {
+        await queueService.removeParticipant(id);
+      } else if (typeof queueService.deleteParticipant === "function") {
+        await queueService.deleteParticipant(id);
+      } else {
+        await queueService.rejectParticipant(id);
+      }
+      return {};
+    })
+  );
+
+  router.post(
+    "/api/admin/queue/delete",
+    ...operators,
+    command(async (req) => {
+      const id = parseId(req.body?.id);
+      if (!id) {
+        const error = new Error("Falta el identificador del participante.");
+        error.status = 400;
+        throw error;
+      }
+      if (typeof queueService.removeParticipant === "function") {
+        await queueService.removeParticipant(id);
+      } else if (typeof queueService.deleteParticipant === "function") {
+        await queueService.deleteParticipant(id);
+      } else {
+        await queueService.rejectParticipant(id);
+      }
+      return {};
+    })
+  );
+
+  router.post(
+    "/api/admin/queue/reorder",
+    ...operators,
+    command(async (req) => {
+      const order = req.body?.order || req.body?.ids || req.body?.queue;
+      if (typeof queueService.reorderQueue === "function") {
+        await queueService.reorderQueue(order);
+      } else if (typeof queueService.moveParticipant === "function") {
+        await queueService.moveParticipant(order);
+      }
+      return {};
+    })
+  );
+
+  router.post(
+    "/api/admin/inscriptions/open",
+    ...operators,
+    command(async (req) => {
+      if (typeof queueService.setInscriptionsOpen === "function") {
+        await queueService.setInscriptionsOpen(true);
+      } else if (typeof queueService.toggleInscriptions === "function") {
+        await queueService.toggleInscriptions(true);
+      }
+      return {};
+    })
+  );
+
+  router.post(
+    "/api/admin/inscriptions/close",
+    ...operators,
+    command(async (req) => {
+      if (typeof queueService.setInscriptionsOpen === "function") {
+        await queueService.setInscriptionsOpen(false);
+      } else if (typeof queueService.toggleInscriptions === "function") {
+        await queueService.toggleInscriptions(false);
+      }
+      return {};
+    })
+  );
+
+  router.post(
+    "/api/admin/inscriptions/toggle",
+    ...operators,
+    command(async (req) => {
+      const open = req.body?.open !== false;
+      if (typeof queueService.setInscriptionsOpen === "function") {
+        await queueService.setInscriptionsOpen(open);
+      }
+      return {};
+    })
+  );
+
   return router;
 }
 

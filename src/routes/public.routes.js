@@ -111,6 +111,21 @@ function createPublicRoutes({ config, queueService, state }) {
       
       // Check queue limit - the queue service validates atomically inside its
       // operation lock and persists before resolving.
+      // Check inscriptions
+      let inscriptionsOpen = true;
+      try {
+        if (typeof queueService.getInscriptionsStatus === "function") {
+          const st = queueService.getInscriptionsStatus();
+          inscriptionsOpen = st.open !== false && st.paused !== true;
+        } else if (queueService.getLocalState) {
+          const st = queueService.getLocalState();
+          inscriptionsOpen = st.inscriptionsOpen !== false && st.inscriptionsPaused !== true;
+        }
+      } catch (e) {}
+      if (!inscriptionsOpen) {
+        return res.status(403).json({ error: "Las inscripciones están cerradas." });
+      }
+
       let entry;
       try {
         entry = await queueService.addParticipant(name, {

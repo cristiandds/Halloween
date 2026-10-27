@@ -15,6 +15,15 @@ const pauseButton = document.querySelector("#pause");
 const resumeButton = document.querySelector("#resume");
 const skipButton = document.querySelector("#skip");
 const finishButton = document.querySelector("#finish");
+const openInscriptionsBtn = document.querySelector("#open-inscriptions");
+const closeInscriptionsBtn = document.querySelector("#close-inscriptions");
+const reorderBtn = document.querySelector("#reorder-btn");
+const reorderInput = document.querySelector("#reorder-input");
+const totalParticipants = document.querySelector("#total-participants");
+const activeNow = document.querySelector("#active-now");
+const connectionEl = document.querySelector("#connection");
+const inscriptionsEl = document.querySelector("#inscriptions");
+const participantsTbody = document.querySelector("#participants-tbody");
 
 let csrfToken = "";
 let refreshTimer = null;
@@ -79,6 +88,91 @@ function renderApproval(items) {
   }
 }
 
+function formatDate(ts) {
+  if (!ts) return "—";
+  try {
+    const d = new Date(ts);
+    if (isNaN(d.getTime())) return "—";
+    return d.toLocaleString();
+  } catch (e) {
+    return "—";
+  }
+}
+
+function renderParticipants(state) {
+  if (!participantsTbody) return;
+  participantsTbody.textContent = "";
+  const participants = Array.isArray(state.participants) ? state.participants : [];
+  if (participants.length === 0) {
+    const tr = document.createElement("tr");
+    const td = document.createElement("td");
+    td.colSpan = 6;
+    td.className = "empty";
+    td.textContent = "Sin participantes";
+    tr.appendChild(td);
+    participantsTbody.appendChild(tr);
+    if (totalParticipants) totalParticipants.textContent = "0";
+    return;
+  }
+  if (totalParticipants) totalParticipants.textContent = String(participants.length);
+
+  for (const p of participants) {
+    const tr = document.createElement("tr");
+    const idTd = document.createElement("td");
+    idTd.textContent = String(p.id);
+    const nameTd = document.createElement("td");
+    nameTd.textContent = String(p.name || "");
+    const stateTd = document.createElement("td");
+    stateTd.textContent = String(p.state || "—");
+    const dateTd = document.createElement("td");
+    dateTd.textContent = formatDate(p.registeredAt || p.submittedAt);
+    const posTd = document.createElement("td");
+    if (state.active && state.active.id === p.id) {
+      posTd.textContent = "En pantalla";
+    } else if (Array.isArray(state.queueItems)) {
+      const idx = state.queueItems.findIndex(q => q.id === p.id);
+      posTd.textContent = idx >= 0 ? String(idx + 1) : "—";
+    } else {
+      posTd.textContent = "—";
+    }
+    const actionsTd = document.createElement("td");
+    actionsTd.className = "actions-cell";
+
+    const approve = document.createElement("button");
+    approve.type = "button";
+    approve.textContent = "Aprobar";
+    approve.dataset.action = "approve";
+    approve.dataset.id = String(p.id);
+
+    const reject = document.createElement("button");
+    reject.type = "button";
+    reject.className = "reject";
+    reject.textContent = "Rechazar";
+    reject.dataset.action = "reject";
+    reject.dataset.id = String(p.id);
+
+    const remove = document.createElement("button");
+    remove.type = "button";
+    remove.className = "reject";
+    remove.textContent = "Eliminar";
+    remove.dataset.action = "remove";
+    remove.dataset.id = String(p.id);
+
+    if (p.state === "pending_approval") {
+      actionsTd.appendChild(approve);
+    }
+    actionsTd.appendChild(reject);
+    actionsTd.appendChild(remove);
+    tr.appendChild(idTd);
+    tr.appendChild(nameTd);
+    tr.appendChild(stateTd);
+    tr.appendChild(dateTd);
+    tr.appendChild(posTd);
+    tr.appendChild(actionsTd);
+    participantsTbody.appendChild(tr);
+  }
+}
+
 function render(state) {
   lastState = state;
   waiting.textContent = String(state.waiting ?? 0);
@@ -90,11 +184,22 @@ function render(state) {
       : "—";
 
   if (state.paused) {
-    mode.textContent = "Pausa";
+    mode.textContent = "PAUSA";
   } else if (state.active) {
-    mode.textContent = "Activo";
+    mode.textContent = "ACTIVO";
   } else {
-    mode.textContent = "QR";
+    mode.textContent = "ESPERA/QR";
+  }
+
+  if (activeNow) {
+    activeNow.textContent = state.active && state.active.name ? state.active.name : "NADIE";
+  }
+  if (connectionEl) {
+    connectionEl.textContent = socket && socket.connected ? "CONECTADO" : "DESCONECTADO";
+  }
+  if (inscriptionsEl) {
+    const ins = state.inscriptions || { open: true };
+    inscriptionsEl.textContent = ins.open !== false ? "ABIERTAS" : "CERRADAS";
   }
 
   if (state.active) {
@@ -107,12 +212,13 @@ function render(state) {
 
   renderPreview(state.queuePreview);
   renderApproval(state.pendingApprovalItems);
+  renderParticipants(state);
 
-  pauseButton.disabled = Boolean(state.paused);
-  resumeButton.disabled = !state.paused;
-  skipButton.disabled = !state.active;
-  finishButton.disabled = !state.active;
-  nextButton.disabled = Boolean(state.active) || Boolean(state.paused);
+  if (pauseButton) pauseButton.disabled = Boolean(state.paused);
+  if (resumeButton) resumeButton.disabled = !state.paused;
+  if (skipButton) skipButton.disabled = !state.active;
+  if (finishButton) finishButton.disabled = !state.active;
+  if (nextButton) nextButton.disabled = Boolean(state.active) || Boolean(state.paused);
 }
 
 async function loadSession() {
@@ -210,25 +316,53 @@ function connectSocket() {
 
   socket.on("state", (snapshot) => {
     render(snapshot);
+    if (connectionEl) connectionEl.textContent = "CONECTADO";
+  });
+  socket.on("state:private", (snapshot) => {
+    render(snapshot);
+    if (connectionEl) connectionEl.textContent = "CONECTADO";
   });
 
   socket.on("connect_error", (error) => {
+    if (connectionEl) connectionEl.textContent = "ERROR";
     if (error && error.message === "unauthorized") {
       redirectToLogin();
     }
   });
+  socket.on("disconnect", () => {
+    if (connectionEl) connectionEl.textContent = "DESCONECTADO";
+  });
+  socket.on("connect", () => {
+    if (connectionEl) connectionEl.textContent = "CONECTADO";
+  });
 }
 
-refreshButton.addEventListener("click", refresh);
-nextButton.addEventListener("click", () => runCommand("/api/admin/queue/next", {}, "Siguiente participante iniciado."));
-pauseButton.addEventListener("click", () => runCommand("/api/admin/queue/pause", {}, "Cola pausada."));
-resumeButton.addEventListener("click", () => runCommand("/api/admin/queue/resume", {}, "Cola reanudada."));
-skipButton.addEventListener("click", () =>
-  runCommand("/api/admin/queue/skip", lastState?.active ? { id: lastState.active.id } : {}, "Participante saltado.")
-);
-finishButton.addEventListener("click", () =>
-  runCommand("/api/admin/queue/finish", lastState?.active ? { id: lastState.active.id } : {}, "Participante finalizado.")
-);
+if (refreshButton) refreshButton.addEventListener("click", refresh);
+if (nextButton) nextButton.addEventListener("click", () => runCommand("/api/admin/queue/next", {}, "Siguiente participante iniciado."));
+if (pauseButton) pauseButton.addEventListener("click", () => runCommand("/api/admin/queue/pause", {}, "Proyección pausada."));
+if (resumeButton) resumeButton.addEventListener("click", () => runCommand("/api/admin/queue/resume", {}, "Proyección reanudada."));
+if (skipButton) skipButton.addEventListener("click", () => {
+  if (!confirm("¿Saltar al participante actual?")) return;
+  runCommand("/api/admin/queue/skip", lastState?.active ? { id: lastState.active.id } : {}, "Participante saltado.");
+});
+if (finishButton) finishButton.addEventListener("click", () => {
+  if (!confirm("¿Finalizar al participante actual?")) return;
+  runCommand("/api/admin/queue/finish", lastState?.active ? { id: lastState.active.id } : {}, "Participante finalizado.");
+});
+if (openInscriptionsBtn) openInscriptionsBtn.addEventListener("click", () => runCommand("/api/admin/inscriptions/open", {}, "Inscripciones abiertas."));
+if (closeInscriptionsBtn) closeInscriptionsBtn.addEventListener("click", () => {
+  if (!confirm("¿Cerrar las inscripciones?")) return;
+  runCommand("/api/admin/inscriptions/close", {}, "Inscripciones cerradas.");
+});
+if (reorderBtn) reorderBtn.addEventListener("click", () => {
+  const val = reorderInput ? reorderInput.value : "";
+  const ids = val.split(",").map(x => x.trim()).filter(Boolean).map(x => Number.parseInt(x, 10)).filter(Number.isInteger);
+  if (ids.length === 0) {
+    message.textContent = "Introduce IDs válidos separados por coma.";
+    return;
+  }
+  runCommand("/api/admin/queue/reorder", { order: ids }, "Cola reordenada.");
+});
 
 approvalList.addEventListener("click", async (event) => {
   const button = event.target.closest("button[data-action]");
@@ -245,12 +379,50 @@ approvalList.addEventListener("click", async (event) => {
     if (action === "approve") {
       await runCommand("/api/admin/queue/approve", { id }, "Solicitud aprobada.");
     } else if (action === "reject") {
+      if (!confirm("¿Rechazar esta solicitud?")) {
+        button.disabled = false;
+        return;
+      }
       await runCommand("/api/admin/queue/reject", { id }, "Solicitud rechazada.");
     }
   } finally {
     button.disabled = false;
   }
 });
+
+if (participantsTbody) {
+  participantsTbody.addEventListener("click", async (event) => {
+    const button = event.target.closest("button[data-action]");
+    if (!button) {
+      return;
+    }
+    const id = Number.parseInt(button.dataset.id, 10);
+    if (!Number.isInteger(id)) {
+      return;
+    }
+    const action = button.dataset.action;
+    button.disabled = true;
+    try {
+      if (action === "approve") {
+        await runCommand("/api/admin/queue/approve", { id }, "Participante aprobado.");
+      } else if (action === "reject") {
+        if (!confirm("¿Rechazar este participante?")) {
+          button.disabled = false;
+          return;
+        }
+        await runCommand("/api/admin/queue/reject", { id }, "Participante rechazado.");
+      } else if (action === "remove") {
+        if (!confirm("¿Eliminar este participante? Esta acción es destructiva.")) {
+          button.disabled = false;
+          return;
+        }
+        await runCommand("/api/admin/queue/remove", { id }, "Participante eliminado.");
+      }
+    } finally {
+      button.disabled = false;
+    }
+  });
+}
 
 logoutButton.addEventListener("click", async () => {
   logoutButton.disabled = true;

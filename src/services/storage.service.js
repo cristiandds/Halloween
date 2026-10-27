@@ -238,6 +238,8 @@ function createInitialState({ displaySeconds = 15, queueMaxLength = 100, now = D
       queueMaxLength,
       updatedAt: timestamp
     },
+    inscriptionsOpen: true,
+    inscriptionsPaused: false,
     createdAt: timestamp,
     updatedAt: timestamp
   };
@@ -394,6 +396,9 @@ function normalizeState(raw, { displaySeconds = 15, queueMaxLength = 100, now = 
     .filter((participant) => participant.state === PARTICIPANT_STATES.SKIPPED)
     .map((participant) => ({ ...participant }));
 
+  const inscriptionsOpen = migrated.inscriptionsOpen !== undefined ? migrated.inscriptionsOpen !== false : true;
+  const inscriptionsPaused = migrated.inscriptionsPaused === true;
+
   return {
     schemaVersion: SCHEMA_VERSION,
     nextId,
@@ -409,6 +414,8 @@ function normalizeState(raw, { displaySeconds = 15, queueMaxLength = 100, now = 
     pauseState,
     timers,
     eventConfig,
+    inscriptionsOpen,
+    inscriptionsPaused,
     createdAt,
     updatedAt
   };
