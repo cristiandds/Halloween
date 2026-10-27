@@ -10,6 +10,7 @@ function parseInteger(value, fallback) {
 
 const PORT = parseInteger(process.env.PORT, 3000);
 const DISPLAY_SECONDS = parseInteger(process.env.DISPLAY_SECONDS, 15);
+const QUEUE_MAX_LENGTH = parseInteger(process.env.QUEUE_MAX_LENGTH, 100);
 const SESSION_TTL_MINUTES = parseInteger(process.env.SESSION_TTL_MINUTES, 480);
 
 const DEFAULT_DEV_ADMIN_PASSWORD = "dev-admin-password";
@@ -27,6 +28,16 @@ const SESSION_TTL_MS = SESSION_TTL_MINUTES * 60 * 1000;
 const PUBLIC_BASE_URL = (process.env.PUBLIC_BASE_URL || "").trim();
 const TRUST_PROXY = process.env.TRUST_PROXY === "1" || process.env.TRUST_PROXY === "true";
 const COOKIE_SECURE = process.env.COOKIE_SECURE === "1" || process.env.COOKIE_SECURE === "true";
+
+// Submission protection
+const SUBMIT_IP_WINDOW_MS = parseInteger(process.env.SUBMIT_IP_WINDOW_MS, 60000);
+const SUBMIT_IP_MAX = parseInteger(process.env.SUBMIT_IP_MAX, 10);
+const SUBMIT_PARTICIPANT_WINDOW_MS = parseInteger(process.env.SUBMIT_PARTICIPANT_WINDOW_MS, 60000);
+const SUBMIT_PARTICIPANT_MAX = parseInteger(process.env.SUBMIT_PARTICIPANT_MAX, 2);
+const SUBMIT_GLOBAL_WINDOW_MS = parseInteger(process.env.SUBMIT_GLOBAL_WINDOW_MS, 60000);
+const SUBMIT_GLOBAL_MAX = parseInteger(process.env.SUBMIT_GLOBAL_MAX, 100);
+const SUBMIT_DUPLICATE_TTL_MS = parseInteger(process.env.SUBMIT_DUPLICATE_TTL_MS, 10 * 60 * 1000);
+const PARTICIPANT_COOKIE_NAME = process.env.PARTICIPANT_COOKIE_NAME || "halloween_pid";
 
 const PUBLIC_DIR = path.join(__dirname, "..", "..", "public");
 const VIEWS_DIR = path.join(__dirname, "..", "views");
@@ -114,5 +125,14 @@ module.exports = {
   LOGIN_HTML,
   SCREEN_HTML,
   ADMIN_HTML,
+  SUBMIT_IP_WINDOW_MS,
+  SUBMIT_IP_MAX,
+  SUBMIT_PARTICIPANT_WINDOW_MS,
+  SUBMIT_PARTICIPANT_MAX,
+  SUBMIT_GLOBAL_WINDOW_MS,
+  SUBMIT_GLOBAL_MAX,
+  SUBMIT_DUPLICATE_TTL_MS,
+  PARTICIPANT_COOKIE_NAME,
+  QUEUE_MAX_LENGTH,
   assertValidConfig
 };

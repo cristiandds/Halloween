@@ -17,6 +17,7 @@ const { createOriginGuard } = require("./security/origin");
 const { createAuthMiddleware } = require("./middleware/auth");
 const { securityHeaders, noStore } = require("./middleware/security");
 const { setupSockets } = require("./sockets");
+const { createSubmissionProtection } = require("./services/submission-protection.service");
 
 function createApp() {
   config.assertValidConfig();
@@ -57,7 +58,7 @@ function createApp() {
 
   app.use(express.json({ limit: "2kb" }));
 
-  const queueService = createQueueService({ displaySeconds: config.DISPLAY_SECONDS });
+  const queueService = createQueueService({ displaySeconds: config.DISPLAY_SECONDS, maxLength: config.QUEUE_MAX_LENGTH });
 
   const state = createState({
     queueService,
@@ -88,7 +89,18 @@ function createApp() {
   const passwordVerifier = createPasswordVerifier(config.ADMIN_PASSWORD);
   const loginRateLimiter = createLoginRateLimiter();
   const auth = createAuthMiddleware({ sessions });
-
+  const submissionProtection = createSubmissionProtection({
+    ipWindowMs: config.SUBMIT_IP_WINDOW_MS,
+    ipMax: config.SUBMIT_IP_MAX,
+    participantWindowMs: config.SUBMIT_PARTICIPANT_WINDOW_MS,
+    participantMax: config.SUBMIT_PARTICIPANT_MAX,
+    globalWindowMs: config.SUBMIT_GLOBAL_WINDOW_MS,
+    globalMax: config.SUBMIT_GLOBAL_MAX,
+    duplicateTtlMs: config.SUBMIT_DUPLICATE_TTL_MS,
+    cookieName: config.PARTICIPANT_COOKIE_NAME,
+    secureCookies: config.COOKIE_SECURE
+  });
+ 
   const socketHub = setupSockets(io, { state, sessions, config });
 
   app.use(auth.attachSession);
@@ -111,6 +123,7 @@ function createApp() {
   app.use((req, res, next) => {
     req.queueService = queueService;
     req.io = io;
+    req.submissionProtection = submissionProtection;
     next();
   });
 
@@ -147,7 +160,7 @@ function createApp() {
     res.status(status).json({ error: message });
   });
 
-  return { app, server, io, queueService, state, sessions, config };
+  return { app, server, io, queueService, state, sessions, config, submissionProtection };
 }
 
 module.exports = { createApp };

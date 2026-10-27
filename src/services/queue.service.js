@@ -1,8 +1,9 @@
-function createQueueService({ displaySeconds }) {
+function createQueueService({ displaySeconds, maxLength = 100 } = {}) {
   const queue = [];
   let active = null;
   let timer = null;
   let nextId = 1;
+  const queueMaxLength = typeof maxLength === "number" && maxLength > 0 ? maxLength : 100;
 
   function getQueueLength() {
     return queue.length;
@@ -25,7 +26,7 @@ function createQueueService({ displaySeconds }) {
   }
 
   function enqueue(name) {
-    if (queue.length >= 100) {
+    if (queue.length >= queueMaxLength) {
       const err = new Error("La cola está llena por ahora. Inténtalo en un momento.");
       err.status = 429;
       throw err;
