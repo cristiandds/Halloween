@@ -1,19 +1,128 @@
 <!doctype html>
 <html lang="es">
 <head>
-<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Descubre tu destino</title>
-<link rel="stylesheet" href="/css/join.css">
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+  <meta name="robots" content="noindex,nofollow">
+  <meta name="color-scheme" content="dark">
+  <title>Invocación de Terror | Halloween</title>
+  <meta name="description" content="Inscribe tu nombre para aparecer en la pantalla gigante del ritual de Halloween.">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Cinzel+Decorative:wght@700;900&family=Creepster&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/css/join.css">
 </head>
-<body><main class="card">
-<h1>Descubre tu destino</h1>
-<p>Escribe tu nombre y deja que la oscuridad revele tu historia.</p>
-<form id="form">
-<label for="name">¿Cómo te llamas?</label>
-<input id="name" name="name" maxlength="32" minlength="2" autocomplete="given-name" placeholder="Escribe tu nombre..." required>
-<button id="send" type="submit">INVOCAR MI DESTINO</button>
-</form>
-<div id="result" class="result" role="status" aria-live="polite"></div>
-<p class="note">Tu nombre podrá aparecer en la pantalla del evento.</p>
-</main>
-<script src="/js/join.js"></script></body></html>
+<body>
+  <!-- Ambient background lighting -->
+  <div class="bg-mist" aria-hidden="true">
+    <span class="mist-blob blob-1"></span>
+    <span class="mist-blob blob-2"></span>
+  </div>
+
+  <main class="mobile-container" role="main">
+    <div class="ritual-card" aria-live="polite">
+      <!-- Card Header -->
+      <header class="card-header">
+        <div class="header-icon" aria-hidden="true">☠️</div>
+        <h1 class="header-title">RITUAL DE TERROR</h1>
+        <p class="header-subtitle">Escribe tu nombre para invocar tu destino en la pantalla gigante</p>
+      </header>
+
+      <!-- Panel 1: FORM -->
+      <section id="state-form" class="panel active" aria-labelledby="form-heading">
+        <h2 id="form-heading" class="sr-only">Formulario de invocación</h2>
+        <form id="invocation-form" novalidate autocomplete="off">
+          <div class="form-group">
+            <label for="participant-name" class="input-label">¿CÓMO TE LLAMAS?</label>
+            <div class="input-wrapper">
+              <input
+                id="participant-name"
+                class="name-input"
+                name="name"
+                type="text"
+                maxlength="32"
+                minlength="2"
+                inputmode="text"
+                spellcheck="false"
+                autocorrect="off"
+                autocapitalize="words"
+                placeholder="Escribe tu nombre o apodo..."
+                required
+                autofocus
+              >
+            </div>
+            <div id="name-warning" class="input-warning" aria-live="polite"></div>
+            <small class="input-help">De 2 a 32 caracteres • No se admiten símbolos especiales</small>
+          </div>
+
+          <button id="submit-btn" class="invoke-btn" type="submit">
+            <span class="btn-glow" aria-hidden="true"></span>
+            <span class="btn-text">INVOCAR MI NOMBRE</span>
+          </button>
+        </form>
+        <p class="legal-note">Tu nombre y una frase aleatoria de terror se proyectarán en vivo durante 15 segundos.</p>
+      </section>
+
+      <!-- Panel 2: SENDING / INVOCANDO -->
+      <section id="state-sending" class="panel" aria-live="polite" aria-busy="true">
+        <div class="pulsing-skull" aria-hidden="true">⚡</div>
+        <h2 class="status-heading">INVOCANDO...</h2>
+        <p class="status-desc">Inscribiendo tu nombre en el libro de las sombras.</p>
+        <div class="loading-bar" aria-hidden="true">
+          <div class="loading-fill"></div>
+        </div>
+      </section>
+
+      <!-- Panel 3: TRACKING / EN COLA O EN PANTALLA -->
+      <section id="state-tracking" class="panel" aria-live="polite">
+        <div id="tracking-icon" class="status-badge-icon" aria-hidden="true">🕯️</div>
+        <h2 id="tracking-title" class="status-heading">¡INVOCACIÓN ENVIADA!</h2>
+        <p id="tracking-message" class="status-desc">Tu nombre fue registrado con éxito.</p>
+
+        <div class="tracking-grid">
+          <div class="track-card">
+            <span class="track-label">ESTADO</span>
+            <span id="track-status-badge" class="track-value badge-waiting">En cola</span>
+          </div>
+          <div id="track-pos-card" class="track-card">
+            <span class="track-label">TU TURNO</span>
+            <span id="track-position" class="track-value highlight">#1</span>
+          </div>
+          <div id="track-time-card" class="track-card">
+            <span class="track-label">TIEMPO ESTIMADO</span>
+            <span id="track-wait" class="track-value">~15s</span>
+          </div>
+        </div>
+
+        <div id="active-alert-box" class="active-alert-box hidden">
+          <span class="alert-icon">🔥</span>
+          <p class="alert-text"><strong>¡ESTÁS EN PANTALLA AHORA MISMO!</strong><br>Mira hacia la proyección.</p>
+        </div>
+
+        <div class="tracking-footer">
+          <p class="tracking-subtext">Mantén esta pantalla abierta. Se actualiza en tiempo real.</p>
+          <button id="refresh-track-btn" class="subtle-btn" type="button">Actualizar estado</button>
+        </div>
+      </section>
+
+      <!-- Panel 4: ERROR -->
+      <section id="state-error" class="panel" aria-live="assertive">
+        <div class="error-icon" aria-hidden="true">⚠️</div>
+        <h2 class="status-heading">ALGO SALIÓ MAL</h2>
+        <p id="error-message" class="status-desc">No se pudo procesar tu invocación.</p>
+        <button id="back-to-form-btn" class="invoke-btn secondary" type="button">Volver a intentar</button>
+      </section>
+
+      <!-- Panel 5: INSCRIPCIONES CERRADAS -->
+      <section id="state-closed" class="panel" aria-live="polite">
+        <div class="closed-icon" aria-hidden="true">🔒</div>
+        <h2 class="status-heading">RITUAL CERRADO</h2>
+        <p class="status-desc">Las inscripciones están temporalmente pausadas por el anfitrión.</p>
+        <button id="retry-open-btn" class="subtle-btn" type="button">Verificar si ya abrieron</button>
+      </section>
+    </div>
+  </main>
+
+  <script src="/js/join.js"></script>
+</body>
+</html>

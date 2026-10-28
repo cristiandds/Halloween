@@ -1,0 +1,152 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="dark">
+  <title>Halloween Ritual • Sistema de Proyección</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Cinzel+Decorative:wght@700;900&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    :root {
+      --bg: #050102;
+      --card-bg: rgba(18, 6, 9, 0.95);
+      --crimson: #dc2626;
+      --crimson-glow: #ef4444;
+      --text: #f8fafc;
+      --text-muted: #94a3b8;
+    }
+    body {
+      min-height: 100vh;
+      min-height: 100dvh;
+      background: radial-gradient(circle at 50% 20%, rgba(139, 0, 0, 0.3), transparent 60%), var(--bg);
+      color: var(--text);
+      font-family: "Inter", -apple-system, sans-serif;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 24px 16px;
+    }
+    .portal-container {
+      width: 100%;
+      max-width: 520px;
+      text-align: center;
+    }
+    .skull-badge {
+      font-size: 48px;
+      margin-bottom: 12px;
+      filter: drop-shadow(0 0 16px var(--crimson));
+    }
+    h1 {
+      font-family: "Cinzel Decorative", Georgia, serif;
+      font-size: clamp(24px, 5.5vw, 36px);
+      letter-spacing: 2px;
+      color: #ffffff;
+      text-shadow: 0 0 20px rgba(220, 38, 38, 0.8);
+      margin-bottom: 8px;
+    }
+    .subtitle {
+      font-size: 15px;
+      color: var(--text-muted);
+      margin-bottom: 32px;
+    }
+    .nav-cards {
+      display: flex;
+      flex-direction: column;
+      gap: 14px;
+    }
+    .portal-link {
+      display: flex;
+      align-items: center;
+      gap: 16px;
+      padding: 18px 20px;
+      background: var(--card-bg);
+      border: 1px solid rgba(220, 38, 38, 0.35);
+      border-radius: 14px;
+      color: #ffffff;
+      text-decoration: none;
+      text-align: left;
+      box-shadow: 0 8px 24px rgba(0, 0, 0, 0.6);
+      transition: transform 0.2s, border-color 0.2s, box-shadow 0.2s;
+    }
+    .portal-link:hover {
+      transform: translateY(-2px);
+      border-color: var(--crimson-glow);
+      box-shadow: 0 10px 30px rgba(220, 38, 38, 0.35);
+    }
+    .portal-link.featured {
+      background: linear-gradient(135deg, rgba(139, 0, 0, 0.4), var(--card-bg));
+      border-color: rgba(239, 68, 68, 0.6);
+    }
+    .link-icon {
+      font-size: 28px;
+      flex-shrink: 0;
+    }
+    .link-info {
+      flex: 1;
+    }
+    .link-title {
+      font-size: 17px;
+      font-weight: 700;
+      color: #ffffff;
+      margin-bottom: 2px;
+    }
+    .link-desc {
+      font-size: 13px;
+      color: var(--text-muted);
+    }
+    .link-arrow {
+      color: var(--crimson-glow);
+      font-size: 20px;
+      font-weight: bold;
+    }
+    .footer-note {
+      margin-top: 32px;
+      font-size: 12px;
+      color: #64748b;
+    }
+  </style>
+</head>
+<body>
+  <div class="portal-container">
+    <div class="skull-badge">☠️</div>
+    <h1>HALLOWEEN RITUAL</h1>
+    <p class="subtitle">Sistema de Invocación y Proyección en Pantalla LED</p>
+
+    <div class="nav-cards">
+      <a class="portal-link featured" href="/screen">
+        <span class="link-icon">🖥️</span>
+        <div class="link-info">
+          <div class="link-title">Pantalla de Proyección</div>
+          <div class="link-desc">Vista en pantalla completa para Resolume Arena o proyector</div>
+        </div>
+        <span class="link-arrow">→</span>
+      </a>
+
+      <a class="portal-link" href="/join">
+        <span class="link-icon">📱</span>
+        <div class="link-info">
+          <div class="link-title">Formulario de Invocación</div>
+          <div class="link-desc">Página móvil para escanear el QR e inscribir nombres</div>
+        </div>
+        <span class="link-arrow">→</span>
+      </a>
+
+      <a class="portal-link" href="/admin">
+        <span class="link-icon">⚙️</span>
+        <div class="link-info">
+          <div class="link-title">Panel de Control</div>
+          <div class="link-desc">Gestión privada protegida con contraseña para la cola</div>
+        </div>
+        <span class="link-arrow">→</span>
+      </a>
+    </div>
+
+    <footer class="footer-note">
+      Preparado para Netlify Free & Resolume Arena • 100% HTML, CSS & Vanilla JS
+    </footer>
+  </div>
+</body>
+</html>

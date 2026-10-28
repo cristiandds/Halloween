@@ -129,6 +129,7 @@ function createPublicRoutes({ config, queueService, state }) {
       let entry;
       try {
         entry = await queueService.addParticipant(name, {
+          externalId: participantId,
           state: config.REQUIRE_APPROVAL
             ? queueService.PARTICIPANT_STATES.PENDING_APPROVAL
             : queueService.PARTICIPANT_STATES.WAITING,
@@ -168,6 +169,58 @@ function createPublicRoutes({ config, queueService, state }) {
         });
       }
       next(err);
+    }
+  });
+
+
+  router.get("/api/inscriptions/status", (req, res) => {
+    try {
+      if (typeof queueService.getInscriptionsStatus === "function") {
+        const st = queueService.getInscriptionsStatus();
+        return res.json({ open: st.open !== false, paused: st.paused === true });
+      }
+      if (queueService.getLocalState) {
+        const s = queueService.getLocalState();
+        return res.json({ open: s.inscriptionsOpen !== false, paused: s.inscriptionsPaused === true });
+      }
+    } catch (e) {}
+    return res.json({ open: true, paused: false });
+  });
+
+  router.get("/api/participant/status", (req, res) => {
+    try {
+      const protection = req.submissionProtection;
+      if (!protection) {
+        return res.status(503).json({ error: "Servicio temporalmente no disponible." });
+      }
+      const participantId = protection.getOrCreateParticipantId(req, res);
+      const found = typeof queueService.getParticipant === "function" ? queueService.getParticipant(participantId) : null;
+      if (!found) {
+        return res.status(404).json({ error: "No se encontró inscripción para este participante." });
+      }
+      let position = null;
+      let estimatedWaitSeconds = null;
+      try {
+        if (typeof queueService.getEstimate === "function") {
+          const est = queueService.getEstimate(participantId);
+          position = est.position;
+          estimatedWaitSeconds = est.estimatedWaitSeconds;
+        }
+      } catch (e) {}
+      return res.json({
+        ok: true,
+        id: found.id,
+        state: found.state,
+        name: found.name,
+        position,
+        estimatedWaitSeconds,
+        pendingApproval: found.state === queueService.PARTICIPANT_STATES.PENDING_APPROVAL
+      });
+    } catch (err) {
+      if (err.status) {
+        return res.status(err.status).json({ error: err.message });
+      }
+      return res.status(500).json({ error: "Error interno del servidor." });
     }
   });
 

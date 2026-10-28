@@ -7,19 +7,20 @@
   "scripts": {
     "start": "node server.js",
     "dev": "node server.js",
-    "test": "node --test",
-    "storage:backups": "node scripts/recover-storage.js --list",
-    "storage:recover": "node scripts/recover-storage.js"
+    "dev:netlify": "npx netlify dev",
+    "test": "node --test"
   },
   "engines": {
     "node": ">=20"
   },
   "dependencies": {
+    "@netlify/blobs": "^11.1.7",
     "express": "^4.21.2",
     "qrcode": "^1.5.4",
     "socket.io": "^4.8.1"
   },
   "devDependencies": {
+    "netlify-cli": "^17.0.0",
     "socket.io-client": "^4.8.4"
   }
 }

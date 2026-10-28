@@ -1,198 +1,166 @@
-# Sistema QR de terror para eventos
+# 🎃 Halloween QR • Sistema de Invocación y Proyección en Pantalla LED
 
-Aplicación web de ejemplo: el invitado escanea un QR, escribe su nombre y el sistema lo pone en una cola. La pantalla de proyección muestra cada nombre y una frase aleatoria durante 15 segundos. Cuando no hay más nombres, vuelve al QR.
+Sistema web cinematográfico de terror para eventos en vivo de Halloween. Los invitados escanean un código QR desde cualquier celular, invocan su nombre y este aparece proyectado en una pantalla gigante (o capturado vía **Resolume Arena**) junto a una frase espeluznante durante **15 segundos**, avanzando automáticamente en orden de llegada y regresando al código QR cuando la cola se vacía.
 
-## Importante antes de usarlo en un evento real
+Diseñado con **HTML5, CSS3 y JavaScript nativo**, optimizado para el plan **Netlify Free** y con soporte completo de captura para VJs y pantallas LED.
 
-- Este proyecto es una base funcional para pruebas, no un servicio ya desplegado.
-- Para que los celulares funcionen desde cualquier lugar, debes publicar la aplicación en un servicio de hosting.
-- La cola y el estado del evento se guardan en un archivo JSON local dentro de `DATA_DIR`. Esto permite continuar tras un reinicio, siempre que el hosting use un disco persistente real.
-- La persistencia está diseñada para **una sola instancia** de Node.js. No compartas el mismo `DATA_DIR` entre varios procesos.
-- En hostings con disco efímero (por ejemplo, el sistema de archivos temporal de algunas plataformas) los datos se pierden al reiniciar. Configura un volumen persistente.
-- Define `ADMIN_PASSWORD` y `SESSION_SECRET` con valores largos y privados en el hosting.
-- El acceso a la pantalla y al panel privado requiere iniciar sesión en `/login`.
-- Añade límites y protección contra abuso antes de usarlo en un evento público grande.
-- La dirección del QR se genera usando la dirección pública del hosting. No funcionará para invitados si lo abres solo como `localhost`.
+---
 
-## A. Instalar herramientas en Windows
+## 🚀 Características Principales
 
-1. Instala Node.js LTS: https://nodejs.org/en/download
-2. Instala Visual Studio Code: https://code.visualstudio.com/
-3. Descomprime el ZIP en una carpeta sencilla, por ejemplo `C:\\QR-Terror`.
-4. Abre VS Code y selecciona **File > Open Folder**. Abre la carpeta `QR-Terror`.
-5. En VS Code, abre **Terminal > New Terminal**.
+1. **100% Nativo y Ligero:** Sin React, Vue, Angular, TypeScript ni Tailwind. Código limpio, modular y ultrarrápido.
+2. **Generación Local de QR:** Sin dependencias de CDN externas. Genera el QR automáticamente con el dominio real de producción (`https://DOMINIO.netlify.app/join`) o la red local.
+3. **Formulario Móvil Adaptado (`/join`):** Interfaz táctil de alto contraste diseñada para teléfonos en ambientes oscuros. Validación estricta, anti-spam y botón **INVOCAR MI NOMBRE**. Seguimiento en vivo de tu turno y aviso cuando apareces en pantalla.
+4. **Proyección Cinematográfica (`/screen`):**
+   - Frases aleatorias de terror seleccionadas sin repetición consecutiva.
+   - Temporizador de **15 segundos** con barra de energía carmesí.
+   - Retorno automático e impecable al código QR cuando la cola está vacía.
+   - Efectos CSS optimizados: niebla espectral flotante, ascuas incandescentes y resplandores de sangre.
+5. **Compatibilidad Nativa con Resolume Arena:**
+   - Modo pantalla completa con la tecla `F` o doble clic.
+   - Modo limpio para pantallas LED: oculta la barra HUD presionando `H` o agregando `?clean=1` en la URL.
+   - Ocultamiento automático del puntero del ratón tras 2.5 segundos de inactividad.
+   - Escalado fluido y nítido para resoluciones **HD (720p), Full HD (1080p), 2K y 4K (2160p)** sin barras de desplazamiento.
+6. **Panel Administrativo Protegido (`/admin`):**
+   - Acceso con contraseña (configurable mediante `ADMIN_PASSWORD`).
+   - Visualización de la cola ordenada en tiempo real.
+   - Controles inmediatos: **Pausar / Reanudar proyección**, **Siguiente participante**, **Vaciar cola** y **Pausar inscripciones**.
+7. **Netlify Free & Persistencia Gratuita:**
+   - Funciona sobre Netlify Functions y almacenamiento persistente mediante **Netlify Blobs** (incluido gratis en todas las cuentas de Netlify).
+   - Modo dual: si se ejecuta en local, persiste automáticamente en `.data/halloween-queue.json`.
 
-## B. Ejecutarlo localmente para probar
+---
 
-### Instalar dependencias
-```bash
-npm install
-```
-
-### Configurar variables de entorno (opcional)
-Copia el archivo de ejemplo y ajusta los valores si lo necesitas:
-
-```bash
-cp .env.example .env
-```
-
-En Windows (PowerShell):
-```powershell
-Copy-Item .env.example .env
-```
-
-### Ejecutar
-```bash
-npm start
-```
-
-O en modo desarrollo:
-```bash
-npm run dev
-```
-
-Para configurar la contraseña administrativa y el secreto de sesión, puedes usar variables de entorno. En cmd:
-```bash
-set ADMIN_PASSWORD=una-contraseña-larga-y-privada
-set SESSION_SECRET=un-secreto-aleatorio-de-32-o-mas-caracteres
-npm start
-```
-
-En PowerShell:
-```powershell
-$env:ADMIN_PASSWORD="una-contraseña-larga-y-privada"
-$env:SESSION_SECRET="un-secreto-aleatorio-de-32-o-mas-caracteres"
-npm start
-```
-
-Abre el acceso privado en tu navegador:
-`http://localhost:3000/login`
-
-Después de iniciar sesión podrás abrir `/screen` (proyección) y `/admin` (panel). La pantalla ya no se autentica con `?token=` en la URL: usa una cookie de sesión `HttpOnly` y `SameSite=Strict`. Las sesiones caducan y se invalidan al cerrar sesión.
-
-Para probar el formulario en la misma laptop:
-`http://localhost:3000/join`
-
-Puedes enviar varios nombres desde pestañas diferentes y comprobar que aparecen uno por uno, 15 segundos cada uno. En local, el QR apunta a `localhost`, por lo que no funcionará en otros celulares.
-
-## C. Persistencia, respaldos y recuperación
-
-El estado del evento se guarda en:
+## 📁 Estructura del Proyecto
 
 ```text
-DATA_DIR/event-state.json
+├── netlify/
+│   └── functions/
+│       ├── lib/
+│       │   └── store.js          # Motor de cola, frases de terror y persistencia
+│       ├── state.js              # GET /api/state (estado en vivo y avance automático)
+│       ├── submit.js             # POST /api/submit (validación y encolado de nombres)
+│       ├── config.js             # GET /api/config (URL canónica y configuración)
+│       ├── qr.js                 # GET /api/qr (generación local de código QR en SVG)
+│       ├── participant.js        # GET /api/participant/status (seguimiento móvil)
+│       ├── inscriptions.js       # GET /api/inscriptions/status (estado de apertura)
+│       ├── admin.js              # Endpoints privados protegidos con contraseña
+│       └── utils.js              # Utilidades de red, IP y autenticación
+├── public/
+│   ├── index.html                # Portal de bienvenida y accesos directos
+│   ├── join.html                 # Formulario móvil de invocación
+│   ├── screen.html               # Pantalla de proyección cinematográfica para LED
+│   ├── admin.html                # Panel de control protegido
+│   ├── css/
+│   │   ├── screen.css            # Estilos de terror cinematográfico y animación
+│   │   ├── join.css              # Estilos responsivos táctiles para celulares
+│   │   └── admin.css             # Estilos oscuros del panel administrativo
+│   ├── js/
+│   │   ├── screen.js             # Controlador de pantalla, QR, 15s y Resolume
+│   │   ├── join.js               # Controlador de validación, envío y seguimiento
+│   │   └── admin.js              # Controlador del panel de control
+│   └── vendor/
+│       └── qrcode.min.js         # Generador local offline de códigos QR
+├── server.js                     # Servidor local Node.js para desarrollo y pruebas
+├── netlify.toml                  # Configuración de despliegue y redirecciones Netlify
+├── package.json
+└── README.md
 ```
 
-Por defecto `DATA_DIR` es la carpeta `data/` del proyecto, pero puedes cambiarlo:
+---
 
-```bash
-set DATA_DIR=D:\datos-halloween
-```
+## 🛠️ Instalación y Desarrollo Local
 
-El archivo incluye un número de esquema (`schemaVersion`), el siguiente identificador, la cola pendiente, el participante activo, los finalizados, los pendientes de moderación, la pausa, los tiempos de proyección y la configuración del evento.
+### Requisitos
+- Node.js 20 o superior.
 
-La escritura es atómica: se escribe y verifica un archivo temporal, y solo después se renombra sobre `event-state.json`. Las modificaciones se serializan para que dos peticiones no se pisen. La respuesta `ok` del formulario solo se envía cuando el participante ya quedó guardado. Si el disco falla, la petición devuelve un error y no se confirma el registro.
+### Pasos
+1. Clona el repositorio o abre la carpeta del proyecto.
+2. Instala las dependencias:
+   ```bash
+   npm install
+   ```
+3. Inicia el servidor de desarrollo local:
+   ```bash
+   npm start
+   ```
+4. Abre en tu navegador:
+   - **Portal principal:** [http://localhost:3000](http://localhost:3000)
+   - **Formulario móvil:** [http://localhost:3000/join](http://localhost:3000/join)
+   - **Pantalla de proyección:** [http://localhost:3000/screen](http://localhost:3000/screen)
+   - **Panel administrativo:** [http://localhost:3000/admin](http://localhost:3000/admin) (Contraseña predeterminada: `halloween2026`)
 
-### Respaldos
+---
 
-Después de cada escritura confirmada se conserva una copia del estado en la misma carpeta, con nombres como:
+## 🌐 Despliegue en Netlify Free (Paso a Paso)
 
-```text
-event-state.json.backup-2026-10-26T20-15-00-000Z-1234-000001.json
-```
+El proyecto está 100 % configurado para publicarse en el plan gratuito de Netlify en menos de 2 minutos:
 
-Los respaldos anteriores también permanecen hasta que se alcanza el límite. Así la recuperación puede restaurar el último estado íntegro sin perder los registros ya confirmados.
+1. **Subir a Git:** Asegúrate de tener tu código en un repositorio de GitHub, GitLab o Bitbucket.
+2. **Importar en Netlify:**
+   - Entra en [Netlify.com](https://www.netlify.com/) e inicia sesión.
+   - Haz clic en **"Add new site"** > **"Import an existing project"**.
+   - Selecciona tu repositorio de Halloween.
+3. **Configuración de Build:**
+   - Netlify detectará automáticamente el archivo `netlify.toml`.
+   - **Build command:** *(dejar vacío)*
+   - **Publish directory:** `public`
+   - **Functions directory:** `netlify/functions`
+4. **Variables de Entorno (Opcionales):**
+   En Netlify ve a **Site configuration** > **Environment variables**:
+   - `ADMIN_PASSWORD`: Contraseña para entrar al panel `/admin` (por defecto: `halloween2026`).
+   - `DISPLAY_SECONDS`: Duración de cada nombre en pantalla en segundos (por defecto: `15`).
+   - `PUBLIC_BASE_URL`: Dominio real si usas dominio personalizado (por ejemplo `https://tu-evento.netlify.app`). Si no se define, se detecta automáticamente de la petición HTTP.
+5. **Listo:** Haz clic en **Deploy Site**. Tu web estará en vivo con HTTPS automático.
 
-Se conservan como máximo `STORAGE_BACKUP_LIMIT` respaldos (5 por defecto). Los más antiguos se eliminan automáticamente. Los respaldos y el archivo principal nunca deben subirse a Git: `data/` y los nombres de estado ya están en `.gitignore`.
+### Límites del Plan Gratuito (Netlify Free Tier)
+- **Netlify Functions:** 125,000 peticiones al mes y 100 horas de ejecución gratuitas.
+- **Netlify Blobs (Persistencia):** 100,000 lecturas/mes, 10,000 escrituras/mes y 5 GB de almacenamiento incluidos gratis sin tarjeta de crédito.
+- **Ancho de banda:** 100 GB mensuales.
+*Suficiente para cubrir con holgura múltiples fiestas y eventos con cientos de invitados escaneando al mismo tiempo.*
 
-Para ver los respaldos:
+---
 
-```bash
-npm run storage:backups
-```
+## 🎥 Integración con Resolume Arena
 
-Si el archivo principal está corrupto, la aplicación no lo sobrescribe. Detiene la carga y muestra un error seguro. Detén la aplicación antes de ejecutar la recuperación. Para restaurar el respaldo válido más reciente:
+Para proyectar en pantallas LED o videowalls utilizando Resolume Arena:
 
-```bash
-npm run storage:recover
-```
+1. **Captura de Fuente en Resolume:**
+   - Abre Resolume Arena.
+   - Puedes capturar la ventana del navegador mediante **Screen Capture**, **Spout/NDI**, u OBS Virtual Camera.
+   - Si cuentas con el plugin de navegador web para Resolume, puedes introducir directamente la URL:
+     ```text
+     https://tu-sitio.netlify.app/screen?clean=1
+     ```
+2. **Atajos de Teclado en Pantalla (`/screen`):**
+   - **`F`** o **Doble Clic:** Activa/desactiva la **Pantalla Completa** sin marcos del navegador.
+   - **`H`:** Muestra u oculta la barra HUD de estado para dejar la pantalla completamente limpia.
+   - **`?clean=1`:** Parámetro de URL que arranca la pantalla con la barra HUD oculta desde el primer segundo.
+   - **Cursor automático:** El ratón desaparece automáticamente tras 2.5 segundos sin movimiento.
 
-También puedes elegir uno concreto:
+---
 
-```bash
-npm run storage:recover -- --from event-state.json.backup-2026-10-26T20-15-00-000Z-1234-000001.json
-```
+## 🧪 Pruebas Automáticas
 
-El archivo corrupto se conserva con un nombre `event-state.json.corrupt-...json` antes de restaurar. Revisa el resultado y arranca de nuevo con `npm start`.
-
-### Reinicios
-
-Al arrancar, la aplicación recupera la cola y el participante activo. Si la proyección seguía en curso, recalcula el tiempo restante y continúa. Si ya había terminado, la finaliza una sola vez y pasa al siguiente. Los identificadores finalizados se excluyen de la cola para no mostrar a nadie dos veces.
-
-Las pruebas cubren guardado, recuperación, reinicio con cola pendiente, reinicio durante una proyección, escrituras concurrentes, error de disco y archivo corrupto:
+El proyecto cuenta con una batería completa de pruebas unitarias y de integración nativas con Node.js Test Runner:
 
 ```bash
 npm test
 ```
 
-## D. Publicarlo para usar celulares reales
+Verifica:
+- Generación local de SVG del QR.
+- Reglas de validación, anti-spam y caracteres maliciosos.
+- Orden de llegada FIFO y no duplicación de nombres.
+- Temporización de 15 segundos y retorno automático al QR cuando no hay cola.
+- Acciones administrativas (pausar, reanudar, saltar, vaciar).
+- Servidor HTTP local y compatibilidad con Netlify Functions.
 
-Necesitas desplegar esta carpeta como una aplicación web Node.js en un proveedor que permita ejecutar un servidor persistente con WebSockets, por ejemplo Render:
+---
 
-1. Crea una cuenta en https://render.com/
-2. Sube esta carpeta a un repositorio privado de GitHub.
-3. En Render crea un **Web Service** conectado al repositorio.
-4. Build Command: `npm install`
-5. Start Command: `npm start`
-6. En Environment Variables añade `ADMIN_PASSWORD` y `SESSION_SECRET` con valores largos, aleatorios y difíciles de adivinar. Añade también `NODE_ENV=production`, `PUBLIC_BASE_URL=https://tu-dominio`, `TRUST_PROXY=1`, `DATA_DIR=/var/data/halloween` y `STORAGE_BACKUP_LIMIT=5`.
-7. Crea un **disco persistente** y móntalo en `/var/data` (o en la ruta que uses en `DATA_DIR`). Sin este paso, el estado y los respaldos se perderán al reiniciar. Usa una sola instancia del servicio.
-8. Despliega y espera a que el servicio esté activo.
-9. Abre la URL pública `https://tu-dominio/login` e inicia sesión.
-10. El QR que aparece en la pantalla contendrá la dirección pública `/join`. Escanéalo con un celular que use datos móviles para probarlo.
+## 🔒 Seguridad y Estabilidad
 
-No compartas la sesión ni la contraseña administrativa: `/screen` y `/admin` son privados. Comparte solamente el QR para invitados. No publiques contraseñas ni secretos en el código ni en repositorios.
-
-## E. Seguridad y variables relevantes
-
-- `/screen`, `/admin`, `/api/admin/state` y `/api/auth/session` requieren sesión.
-- `/screen.html` y otras rutas de archivo equivalentes no están disponibles.
-- La sesión usa una cookie opaca, aleatoria, `HttpOnly`, `SameSite=Strict` y `Secure` cuando la petición es HTTPS.
-- `ADMIN_PASSWORD` se compara con `scrypt` y tiempo constante. No hay usuario; solo contraseña de administrador.
-- El inicio de sesión tiene límite de intentos por IP y respuestas genéricas ante credenciales erróneas.
-- Las operaciones privadas que cambian estado exigen origen permitido y token CSRF.
-- Socket.IO rechaza conexiones sin sesión y solo envía nombres/frases a clientes autenticados.
-- `GET /api/state` devuelve únicamente estado público: si hay alguien en pantalla y cuántos esperan.
-- En producción la aplicación rechaza `ADMIN_PASSWORD` o `SESSION_SECRET` ausentes, débiles o de ejemplo.
-- Ejecuta `npm test` para comprobar las pruebas funcionales y de seguridad.
-
-Variables principales: `PORT`, `DISPLAY_SECONDS`, `QUEUE_MAX_LENGTH`, `DATA_DIR`, `STORAGE_FILE_NAME`, `STORAGE_BACKUP_LIMIT`, `ADMIN_PASSWORD`, `SESSION_SECRET`, `SESSION_TTL_MINUTES`, `PUBLIC_BASE_URL`, `TRUST_PROXY` y `COOKIE_SECURE`.
-
-## F. Personalizar las frases
-
-Abre `src/services/phrase.service.js` y busca el arreglo `const PHRASES = [...]`. Cambia o añade frases entre comillas, separadas por comas. No incluyas contenido que pueda poner en riesgo o humillar a los invitados.
-
-## G. Cambiar los 15 segundos
-
-En `src/config/index.js` puedes cambiar `DISPLAY_SECONDS`, o definirlo con la variable de entorno `DISPLAY_SECONDS`. Por ejemplo:
-```bash
-set DISPLAY_SECONDS=12
-```
-Por defecto son 15 segundos.
-
-## H. Proyección con Resolume Arena
-
-1. Inicia sesión en `/login` y abre `/screen` en Chrome o Edge.
-2. Pulsa F11 para pantalla completa.
-3. En Resolume, captura esa ventana o pantalla con la fuente de captura disponible en tu configuración.
-4. Configura la salida de Resolume hacia la pantalla LED.
-5. Prueba la lectura del QR desde un celular antes del evento.
-
-## Limitaciones conocidas
-
-- La persistencia es local y para una sola instancia. No usa una base de datos ni sincroniza varios servidores.
-- El hosting debe proporcionar un disco persistente real. En discos efímeros, `DATA_DIR` se borra al reiniciar.
-- Los respaldos se guardan en la misma carpeta que el estado; si se pierde todo el disco, también se pierden los respaldos.
-- El QR necesita internet para cargar la librería que lo dibuja.
-- Las sesiones y el límite de intentos se guardan en memoria del proceso.
-- La pantalla y el panel privado requieren autenticación; el formulario público sigue abierto.
-- Para una instalación pública profesional conviene añadir moderación y límites de frecuencia más estrictos.
+- **Anti-Spam:** Limitación por IP y longitud máxima de cola (hasta 100 participantes simultáneos).
+- **Sanitización:** Rechazo de inyecciones HTML, caracteres de control e invisibles.
+- **Tolerancia a Fallos:** Reintentos automáticos en caso de pérdida momentánea de conexión a internet con indicador de reconexión.
+- **Persistencia en Frío:** La cola y el participante activo no se pierden aunque se recargue la página o la función serverless se suspenda.

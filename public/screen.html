@@ -1,0 +1,98 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="robots" content="noindex,nofollow">
+  <meta name="color-scheme" content="dark">
+  <title>Halloween Ritual - Proyección en Vivo</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Cinzel+Decorative:wght@700;900&family=Creepster&family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/css/screen.css">
+</head>
+<body class="resolume-target">
+  <!-- Atmospheric background layers -->
+  <div class="bg-vignette" aria-hidden="true"></div>
+  <div class="bg-fog-layer fog-back" aria-hidden="true"></div>
+  <div class="bg-fog-layer fog-front" aria-hidden="true"></div>
+  <div class="bg-embers" aria-hidden="true">
+    <span class="ember e1"></span>
+    <span class="ember e2"></span>
+    <span class="ember e3"></span>
+    <span class="ember e4"></span>
+    <span class="ember e5"></span>
+  </div>
+
+  <main class="stage" role="main" aria-live="polite">
+    <!-- QR WAITING VIEW -->
+    <section id="waiting" class="view view-waiting" aria-labelledby="waiting-title">
+      <div class="view-content">
+        <div class="eyebrow-badge">
+          <span class="badge-icon">☠</span>
+          <span class="badge-text">RITUAL DE HALLOWEEN • EN VIVO</span>
+          <span class="badge-icon">☠</span>
+        </div>
+        <h1 id="waiting-title" class="title-waiting">ESCANEA Y DESPIERTA<br><span class="highlight-text">A LAS SOMBRAS</span></h1>
+        
+        <div class="qr-frame-outer">
+          <div class="corner corner-tl"></div>
+          <div class="corner corner-tr"></div>
+          <div class="corner corner-bl"></div>
+          <div class="corner corner-br"></div>
+          <div class="qr-glow-wrapper">
+            <div id="qr" class="qr-display" aria-label="Código QR para enviar tu nombre"></div>
+          </div>
+        </div>
+
+        <p class="qr-url-hint">o ingresa directamente en: <strong id="qr-fallback" class="direct-link">...</strong></p>
+        <div class="blood-separator" aria-hidden="true"></div>
+        <p class="instructions">Apunta con la cámara de tu celular • Escribe tu nombre • Aparece en pantalla</p>
+      </div>
+    </section>
+
+    <!-- ACTIVE NAME REVEAL VIEW -->
+    <section id="reveal" class="view view-reveal hidden" aria-labelledby="person">
+      <!-- 15-second energy timer bar -->
+      <div class="timer-bar-container" aria-hidden="true">
+        <div id="timer-progress" class="timer-bar-fill"></div>
+      </div>
+
+      <div class="view-content reveal-content">
+        <div class="reveal-eyebrow">
+          <span class="skull-flank">⚡</span>
+          <span>LA OSCURIDAD HA INVOCADO A</span>
+          <span class="skull-flank">⚡</span>
+        </div>
+        
+        <div class="name-container">
+          <h1 id="person" class="title-reveal">NOMBRE</h1>
+        </div>
+
+        <div class="blood-separator-wide" aria-hidden="true"></div>
+        
+        <div class="phrase-container">
+          <p id="phrase" class="phrase-text">«El eco de tus pasos no te pertenece...»</p>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <!-- HUD overlay (can be hidden with 'H' key or ?clean=1 for Resolume Arena) -->
+  <footer id="hud" class="hud" aria-label="Información del sistema">
+    <div class="hud-left">
+      <span id="connection" class="hud-item hud-pill" data-state="connecting">Conectando...</span>
+      <span id="queue-status" class="hud-item hud-queue"></span>
+    </div>
+    <div class="hud-center">
+      <span class="hud-hint">Resolume: [F] Pantalla completa • [H] Ocultar barra</span>
+    </div>
+    <div class="hud-right">
+      <span id="countdown" class="hud-item hud-countdown"></span>
+    </div>
+  </footer>
+
+  <script src="/vendor/qrcode.min.js"></script>
+  <script src="/js/screen.js"></script>
+</body>
+</html>

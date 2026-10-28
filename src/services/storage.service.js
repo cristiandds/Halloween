@@ -105,6 +105,7 @@ function normalizeParticipant(raw, label, fallbackState = PARTICIPANT_STATES.WAI
   }
   return {
     id,
+    externalId: typeof raw.externalId === "string" && raw.externalId.trim() ? raw.externalId.trim() : null,
     name,
     phrase: typeof raw.phrase === "string" ? raw.phrase : null,
     state: normalizeStateName(raw.state, fallbackState),
@@ -126,6 +127,7 @@ function normalizeFinishedParticipant(raw, label, fallbackState = PARTICIPANT_ST
   }
   return {
     id,
+    externalId: typeof raw.externalId === "string" && raw.externalId.trim() ? raw.externalId.trim() : null,
     name,
     phrase: typeof raw.phrase === "string" ? raw.phrase : null,
     state: normalizeStateName(raw.state, fallbackState),
@@ -156,6 +158,7 @@ function normalizeActiveParticipant(raw, label, fallbackDurationMs = 15000) {
   const endsAt = toEpoch(raw.endsAt, `${label}.endsAt`, { nullable: true });
   return {
     id,
+    externalId: typeof raw.externalId === "string" && raw.externalId.trim() ? raw.externalId.trim() : null,
     name,
     phrase: typeof raw.phrase === "string" ? raw.phrase : null,
     state: PARTICIPANT_STATES.ACTIVE,

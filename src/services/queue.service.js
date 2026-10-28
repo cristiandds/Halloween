@@ -140,6 +140,7 @@ function createQueueService({
   function copyParticipant(participant) {
     return {
       id: participant.id,
+      externalId: participant.externalId || null,
       name: participant.name,
       phrase: typeof participant.phrase === "string" ? participant.phrase : null,
       state: participant.state,
@@ -585,6 +586,18 @@ function createQueueService({
         }
       } catch (e) {}
 
+      if (options.externalId) {
+        const allList = [
+          ...(Array.isArray(draft.pendingParticipants) ? draft.pendingParticipants : []),
+          ...(Array.isArray(draft.moderationPendingParticipants) ? draft.moderationPendingParticipants : []),
+          ...(draft.activeParticipant ? [draft.activeParticipant] : [])
+        ];
+        const existsId = allList.find((p) => p && p.externalId === options.externalId);
+        if (existsId) {
+          throw createError("Ya te has inscrito anteriormente.", 409);
+        }
+      }
+
       const waiting = Array.isArray(draft.pendingParticipants) ? draft.pendingParticipants : [];
       const approval = Array.isArray(draft.moderationPendingParticipants)
         ? draft.moderationPendingParticipants
@@ -602,6 +615,7 @@ function createQueueService({
 
       const participant = {
         id: draft.nextId,
+        externalId: options.externalId || null,
         name: normalized,
         phrase: typeof options.phrase === "string" ? options.phrase : null,
         state: requestedState,
@@ -929,7 +943,23 @@ function createQueueService({
   }
 
   function getParticipant(id) {
-    return getParticipants().find((participant) => participant.id === id) || null;
+    if (id === undefined || id === null) {
+      return null;
+    }
+    const pid = typeof id === "number" ? id : Number.parseInt(id, 10);
+    if (Number.isInteger(pid)) {
+      const byId = getParticipants().find((participant) => participant && participant.id === pid);
+      if (byId) {
+        return byId;
+      }
+    }
+    if (typeof id === "string" && id.length > 0) {
+      const byExternal = getParticipants().find((participant) => participant && participant.externalId === id);
+      if (byExternal) {
+        return byExternal;
+      }
+    }
+    return null;
   }
 
   function getRemainingMs() {
@@ -952,10 +982,23 @@ function createQueueService({
   }
 
   function getEstimate(participantId) {
+    let resolvedId = participantId;
+    if (typeof participantId === "string") {
+      const found = getParticipant(participantId);
+      if (found) {
+        resolvedId = found.id;
+      }
+    } else if (participantId !== undefined && participantId !== null && typeof participantId !== "number") {
+      const found = getParticipant(participantId);
+      if (found) {
+        resolvedId = found.id;
+      }
+    }
+
     const active = state.activeParticipant;
-    if (active && active.id === participantId) {
+    if (active && active.id === resolvedId) {
       return {
-        participantId,
+        participantId: resolvedId,
         state: PARTICIPANT_STATES.ACTIVE,
         position: 1,
         estimatedWaitSeconds: 0,
@@ -964,10 +1007,10 @@ function createQueueService({
     }
 
     const waiting = Array.isArray(state.pendingParticipants) ? state.pendingParticipants : [];
-    const index = waiting.findIndex((participant) => participant && participant.id === participantId);
+    const index = waiting.findIndex((participant) => participant && participant.id === resolvedId);
     if (index < 0) {
       return {
-        participantId,
+        participantId: resolvedId,
         state: null,
         position: null,
         estimatedWaitSeconds: null,
@@ -980,7 +1023,7 @@ function createQueueService({
     const activeRemaining = active ? remainingFor(active) : 0;
     const estimatedWaitMs = activeRemaining + index * getDisplayMs();
     return {
-      participantId,
+      participantId: resolvedId,
       state: PARTICIPANT_STATES.WAITING,
       position,
       estimatedWaitSeconds: Math.ceil(estimatedWaitMs / 1000),

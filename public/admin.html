@@ -1,0 +1,127 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="robots" content="noindex,nofollow">
+  <meta name="color-scheme" content="dark">
+  <title>Panel de Control | Halloween Ritual</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Cinzel+Decorative:wght@700&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/css/admin.css">
+</head>
+<body>
+  <div class="admin-layout">
+    <!-- AUTHENTICATION MODAL / VIEW -->
+    <section id="auth-section" class="auth-card">
+      <div class="auth-header">
+        <div class="auth-icon" aria-hidden="true">🔐</div>
+        <h1>ACCESO PRIVADO</h1>
+        <p>Introduce la contraseña de administrador para gestionar el evento.</p>
+      </div>
+      <form id="admin-login-form" autocomplete="off">
+        <div class="form-group">
+          <label for="admin-pass">Contraseña de administrador</label>
+          <input
+            id="admin-pass"
+            type="password"
+            placeholder="Introduce la contraseña..."
+            autocomplete="current-password"
+            required
+            autofocus
+          >
+        </div>
+        <button id="login-btn" class="btn-primary" type="submit">INGRESAR AL PANEL</button>
+      </form>
+      <div id="login-error" class="login-error" aria-live="polite"></div>
+    </section>
+
+    <!-- DASHBOARD VIEW -->
+    <main id="dashboard-section" class="dashboard hidden">
+      <!-- Top Bar -->
+      <header class="topbar">
+        <div class="brand">
+          <span class="brand-badge">CONTROL EN VIVO</span>
+          <h1>RITUAL HALLOWEEN</h1>
+        </div>
+        <div class="topbar-actions">
+          <a class="nav-btn" href="/screen" target="_blank" rel="noopener">🖥️ Abrir Pantalla</a>
+          <a class="nav-btn" href="/join" target="_blank" rel="noopener">📱 Formulario</a>
+          <button id="logout-btn" class="nav-btn logout" type="button">Cerrar Sesión</button>
+        </div>
+      </header>
+
+      <!-- Message Banner -->
+      <div id="status-banner" class="status-banner hidden" role="status" aria-live="polite"></div>
+
+      <!-- Quick Stats -->
+      <section class="stats-grid">
+        <div class="stat-card">
+          <span class="stat-label">EN ESPERA</span>
+          <strong id="stat-waiting" class="stat-value">0</strong>
+        </div>
+        <div class="stat-card">
+          <span class="stat-label">ESTADO PROYECCIÓN</span>
+          <strong id="stat-projection" class="stat-value">MODO QR</strong>
+        </div>
+        <div class="stat-card">
+          <span class="stat-label">TIEMPO RESTANTE</span>
+          <strong id="stat-remaining" class="stat-value">-</strong>
+        </div>
+        <div class="stat-card">
+          <span class="stat-label">INSCRIPCIONES</span>
+          <strong id="stat-inscriptions" class="stat-value ok">ABIERTAS</strong>
+        </div>
+      </section>
+
+      <!-- Control Toolbar -->
+      <section class="actions-card">
+        <h2>Acciones de Control</h2>
+        <div class="button-row">
+          <button id="btn-toggle-pause" class="btn-action" type="button">⏸️ Pausar Proyección</button>
+          <button id="btn-next" class="btn-action" type="button">⏭️ Siguiente Participante</button>
+          <button id="btn-toggle-inscriptions" class="btn-action secondary" type="button">🔒 Cerrar Inscripciones</button>
+          <button id="btn-clear-queue" class="btn-action danger" type="button">🗑️ Vaciar Toda la Cola</button>
+        </div>
+      </section>
+
+      <!-- Active Screen Now Card -->
+      <section class="card active-card">
+        <h2>🔥 Ahora Mismo en Pantalla LED</h2>
+        <div class="active-details">
+          <p id="active-name" class="active-name">Nadie (Mostrando Código QR)</p>
+          <p id="active-phrase" class="active-phrase"></p>
+        </div>
+      </section>
+
+      <!-- Queue List Card -->
+      <section class="card queue-card">
+        <div class="card-header-flex">
+          <h2>👥 Cola de Espera (Orden de Llegada)</h2>
+          <button id="btn-refresh" class="btn-sm" type="button">🔄 Actualizar</button>
+        </div>
+        <div class="queue-table-wrap">
+          <table class="queue-table">
+            <thead>
+              <tr>
+                <th>#</th>
+                <th>Nombre</th>
+                <th>Frase Asignada</th>
+                <th>Hora</th>
+              </tr>
+            </thead>
+            <tbody id="queue-tbody">
+              <tr>
+                <td colspan="4" class="empty-cell">Sin participantes en espera</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <script src="/js/admin.js"></script>
+</body>
+</html>

@@ -1,243 +1,319 @@
-const waitingEl = document.querySelector("#waiting");
-const revealEl = document.querySelector("#reveal");
-const personEl = document.querySelector("#person");
-const phraseEl = document.querySelector("#phrase");
-const countdownEl = document.querySelector("#countdown");
-const queueEl = document.querySelector("#queue");
-const qrContainer = document.querySelector("#qr");
-const qrFallback = document.querySelector("#qr-fallback");
-const connectionEl = document.querySelector("#connection");
+/* ==========================================================================
+   HALLOWEEN SCREEN CONTROLLER - RESOLUME ARENA & PROJECTION
+   Zero External Dependencies • Self-Contained QR • Native ES6
+   ========================================================================== */
 
-let currentId = null;
-let countdownTimer = null;
-let countdownBase = null;
-let serverOffsetMs = 0;
-let hasReceivedState = false;
+(function () {
+  'use strict';
 
-function getNow() {
-  return Date.now() + serverOffsetMs;
-}
+  // DOM Elements
+  const waitingView = document.querySelector('#waiting');
+  const revealView = document.querySelector('#reveal');
+  const personEl = document.querySelector('#person');
+  const phraseEl = document.querySelector('#phrase');
+  const qrContainer = document.querySelector('#qr');
+  const qrFallback = document.querySelector('#qr-fallback');
+  const timerProgress = document.querySelector('#timer-progress');
+  const hudEl = document.querySelector('#hud');
+  const connectionEl = document.querySelector('#connection');
+  const queueStatusEl = document.querySelector('#queue-status');
+  const countdownEl = document.querySelector('#countdown');
 
-function setConnectionState(state) {
-  if (!connectionEl) {
-    return;
-  }
-  connectionEl.dataset.state = state;
-  if (state === "connected") {
-    connectionEl.textContent = "Conectado";
-  } else if (state === "reconnecting") {
-    connectionEl.textContent = "Reconectando...";
-  } else if (state === "disconnected") {
-    connectionEl.textContent = "Sin conexión";
-  } else {
-    connectionEl.textContent = "Conectando...";
-  }
-}
+  // Internal state
+  let currentActiveId = null;
+  let timerInterval = null;
+  let pollInterval = null;
+  let cursorTimeout = null;
+  let resolvedJoinUrl = '';
+  let serverOffsetMs = 0;
+  let lastDurationMs = 15000;
 
-async function setupQR() {
-  try {
-    const [configRes, qrRes] = await Promise.all([
-      fetch("/api/config", {
-        headers: { Accept: "application/json" },
-        credentials: "same-origin",
-        cache: "no-store"
-      }),
-      fetch("/api/qr", {
-        headers: { Accept: "application/json" },
-        credentials: "same-origin",
-        cache: "no-store"
-      })
-    ]);
-
-    if (!configRes.ok || !qrRes.ok) {
-      throw new Error("QR fetch failed");
-    }
-
-    const config = await configRes.json();
-    const qrData = await qrRes.json();
-
-    if (qrData && qrData.svg && qrContainer) {
-      qrContainer.innerHTML = qrData.svg;
-      const svgEl = qrContainer.querySelector("svg");
-      if (svgEl) {
-        svgEl.setAttribute("width", "300");
-        svgEl.setAttribute("height", "300");
-        svgEl.setAttribute("preserveAspectRatio", "xMidYMid meet");
-        svgEl.style.width = "100%";
-        svgEl.style.height = "auto";
-        svgEl.style.display = "block";
-        svgEl.style.margin = "0 auto";
-        svgEl.style.background = "#ffffff";
-      }
-      if (qrFallback && qrData.joinUrl) {
-        qrFallback.textContent = `URL: ${qrData.joinUrl}`;
-      } else if (qrFallback && config && config.joinUrl) {
-        qrFallback.textContent = `URL: ${config.joinUrl}`;
-      }
-      return;
-    }
-
-    if (qrFallback && config && config.joinUrl) {
-      qrFallback.textContent = `URL: ${config.joinUrl}`;
-    }
-    if (qrContainer) {
-      qrContainer.textContent = "No se pudo generar el código QR.";
-    }
-  } catch (error) {
-    if (qrContainer) {
-      qrContainer.textContent = "No se pudo cargar el QR.";
-    }
-    if (qrFallback) {
-      qrFallback.textContent = "Verifica la configuración de PUBLIC_BASE_URL.";
-    }
-  }
-}
-
-function stopCountdown() {
-  if (countdownTimer) {
-    clearInterval(countdownTimer);
-    countdownTimer = null;
-  }
-  countdownBase = null;
-}
-
-function startCountdown(remainingMs, paused) {
-  stopCountdown();
-  const total = Math.max(0, Number(remainingMs) || 0);
-  const startedAt = getNow();
-  countdownBase = { total, startedAt, paused: Boolean(paused) };
-
-  const tick = () => {
-    if (!countdownBase) {
-      return;
-    }
-    if (countdownBase.paused) {
-      const remainingSec = Math.max(0, Math.ceil(countdownBase.total / 1000));
-      if (countdownEl) {
-        countdownEl.textContent = `En pausa · ${remainingSec}s restantes`;
-      }
-      return;
-    }
-    const elapsed = getNow() - countdownBase.startedAt;
-    const remainingSec = Math.max(0, Math.ceil((countdownBase.total - elapsed) / 1000));
-    if (countdownEl) {
-      countdownEl.textContent = `Siguiente aparición en ${remainingSec}s`;
-    }
-  };
-
-  tick();
-  if (!countdownBase.paused) {
-    countdownTimer = setInterval(tick, 250);
-  }
-}
-
-function showState(state) {
-  hasReceivedState = true;
-  setConnectionState("connected");
-
-  if (typeof state.serverTime === "number") {
-    serverOffsetMs = state.serverTime - Date.now();
+  // Resolume Clean Mode Check
+  const urlParams = new URLSearchParams(window.location.search);
+  if (urlParams.get('clean') === '1' || urlParams.get('hud') === '0') {
+    if (hudEl) hudEl.classList.add('hud-hidden');
   }
 
-  if (queueEl) {
-    if (state.waiting && state.waiting > 0) {
-      const pending = state.pendingApproval ? ` · Por aprobar: ${state.pendingApproval}` : "";
-      queueEl.textContent = `En espera: ${state.waiting}${pending}`;
-    } else {
-      queueEl.textContent = "";
-    }
+  // Auto-hide mouse cursor after 2.5s of inactivity
+  function resetCursorTimer() {
+    document.body.classList.remove('hide-cursor');
+    clearTimeout(cursorTimeout);
+    cursorTimeout = setTimeout(() => {
+      document.body.classList.add('hide-cursor');
+    }, 2500);
   }
+  window.addEventListener('mousemove', resetCursorTimer);
+  window.addEventListener('mousedown', resetCursorTimer);
+  resetCursorTimer();
 
-  if (!state.active) {
-    currentId = null;
-    stopCountdown();
-    if (countdownEl) {
-      countdownEl.textContent = state.paused ? "En pausa" : "";
-    }
-    if (revealEl) {
-      revealEl.classList.add("hidden");
-      revealEl.classList.remove("revealAnim");
-    }
-    if (waitingEl) {
-      waitingEl.classList.remove("hidden");
-    }
-    return;
-  }
-
-  if (currentId !== state.active.id) {
-    currentId = state.active.id;
-    if (personEl) {
-      personEl.textContent = state.active.name || "";
-    }
-    if (phraseEl) {
-      if (state.active.phrase && String(state.active.phrase).trim()) {
-        phraseEl.textContent = `«${state.active.phrase}»`;
-        phraseEl.style.display = "";
+  // Fullscreen & HUD toggle key listeners (F for fullscreen, H for HUD)
+  window.addEventListener('keydown', (e) => {
+    if (e.key === 'f' || e.key === 'F') {
+      if (!document.fullscreenElement) {
+        document.documentElement.requestFullscreen().catch(() => {});
       } else {
-        phraseEl.textContent = "";
-        phraseEl.style.display = "none";
+        document.exitFullscreen().catch(() => {});
+      }
+    } else if (e.key === 'h' || e.key === 'H') {
+      if (hudEl) hudEl.classList.toggle('hud-hidden');
+    }
+  });
+
+  // Double click to toggle fullscreen
+  window.addEventListener('dblclick', () => {
+    if (!document.fullscreenElement) {
+      document.documentElement.requestFullscreen().catch(() => {});
+    } else {
+      document.exitFullscreen().catch(() => {});
+    }
+  });
+
+  function setConnectionStatus(status) {
+    if (!connectionEl) return;
+    connectionEl.dataset.state = status;
+    if (status === 'connected') {
+      connectionEl.textContent = 'En Vivo';
+    } else if (status === 'reconnecting') {
+      connectionEl.textContent = 'Reconectando...';
+    } else if (status === 'disconnected') {
+      connectionEl.textContent = 'Sin Conexión';
+    } else {
+      connectionEl.textContent = 'Conectando...';
+    }
+  }
+
+  /**
+   * Determine real site URL and generate QR code
+   */
+  async function initQRCode() {
+    try {
+      // 1. Try to get canonical production URL from /api/config
+      try {
+        const configRes = await fetch('/api/config', { cache: 'no-store' });
+        if (configRes.ok) {
+          const cfg = await configRes.json();
+          if (cfg.joinUrl && cfg.joinUrl.startsWith('http')) {
+            resolvedJoinUrl = cfg.joinUrl;
+          }
+          if (cfg.displaySeconds) {
+            lastDurationMs = cfg.displaySeconds * 1000;
+          }
+        }
+      } catch (e) {
+        // Fallback to origin
+      }
+
+      if (!resolvedJoinUrl) {
+        resolvedJoinUrl = `${window.location.origin}/join`;
+      }
+
+      if (qrFallback) {
+        qrFallback.textContent = resolvedJoinUrl;
+      }
+
+      if (!qrContainer) return;
+      qrContainer.innerHTML = '';
+
+      // Try local Davidshimjs QRCode generator first (vendor/qrcode.min.js)
+      let qrRendered = false;
+      if (typeof QRCode !== 'undefined') {
+        try {
+          new QRCode(qrContainer, {
+            text: resolvedJoinUrl,
+            width: 380,
+            height: 380,
+            colorDark: '#000000',
+            colorLight: '#ffffff',
+            correctLevel: QRCode.CorrectLevel.M
+          });
+
+          // Style canvas or image nicely
+          const img = qrContainer.querySelector('img');
+          const canvas = qrContainer.querySelector('canvas');
+          if (img) img.style.width = '100%';
+          if (canvas) canvas.style.width = '100%';
+          qrRendered = true;
+        } catch (err) {
+          console.warn('Local QRCode generator failed:', err);
+        }
+      }
+
+      // Fallback to server SVG QR if needed
+      if (!qrRendered) {
+        try {
+          const qrRes = await fetch('/api/qr', { cache: 'no-store' });
+          if (qrRes.ok) {
+            const qrData = await qrRes.json();
+            if (qrData.svg) {
+              qrContainer.innerHTML = qrData.svg;
+              qrRendered = true;
+            }
+          }
+        } catch (e) {}
+      }
+
+      if (!qrRendered) {
+        qrContainer.innerHTML = `<div style="color:#000;padding:20px;font-size:14px;word-break:break-all;"><strong>${resolvedJoinUrl}</strong></div>`;
+      }
+    } catch (err) {
+      console.error('Error initializing QR:', err);
+    }
+  }
+
+  function stopTimer() {
+    if (timerInterval) {
+      clearInterval(timerInterval);
+      timerInterval = null;
+    }
+    if (timerProgress) {
+      timerProgress.style.width = '0%';
+    }
+  }
+
+  function startTimer(remainingMs, totalDurationMs, isPaused) {
+    stopTimer();
+    const total = totalDurationMs || lastDurationMs || 15000;
+    const initialRemaining = Math.max(0, Number(remainingMs) || total);
+    const startTimestamp = Date.now();
+
+    const updateTimer = () => {
+      let currentRemaining;
+      if (isPaused) {
+        currentRemaining = initialRemaining;
+      } else {
+        const elapsed = Date.now() - startTimestamp;
+        currentRemaining = Math.max(0, initialRemaining - elapsed);
+      }
+
+      const fraction = Math.max(0, Math.min(1, currentRemaining / total));
+      const secondsLeft = Math.ceil(currentRemaining / 1000);
+
+      if (timerProgress) {
+        timerProgress.style.width = `${fraction * 100}%`;
+      }
+
+      if (countdownEl) {
+        if (isPaused) {
+          countdownEl.textContent = `PAUSA • ${secondsLeft}s`;
+        } else {
+          countdownEl.textContent = `${secondsLeft}s`;
+        }
+      }
+    };
+
+    updateTimer();
+    if (!isPaused) {
+      timerInterval = setInterval(updateTimer, 200);
+    }
+  }
+
+  /**
+   * Render state received from /api/state
+   */
+  function renderState(data) {
+    setConnectionStatus('connected');
+
+    if (typeof data.serverTime === 'number') {
+      serverOffsetMs = data.serverTime - Date.now();
+    }
+
+    const isActive = data.status === 'active' || Boolean(data.active);
+    const active = data.active || null;
+    const activeId = active ? (active.id || active.name) : null;
+    const remainingMs = typeof data.remainingMs === 'number' ? data.remainingMs : (typeof data.timeRemaining === 'number' ? data.timeRemaining * 1000 : 15000);
+    const durationMs = (data.displaySeconds || 15) * 1000;
+    const waitingCount = typeof data.waiting === 'number' ? data.waiting : 0;
+    const isPaused = Boolean(data.paused);
+
+    // Update queue count badge
+    if (queueStatusEl) {
+      if (waitingCount > 0) {
+        queueStatusEl.textContent = `En cola: ${waitingCount} ${waitingCount === 1 ? 'persona' : 'personas'}`;
+      } else {
+        queueStatusEl.textContent = '';
       }
     }
-    if (waitingEl) {
-      waitingEl.classList.add("hidden");
+
+    // STATE A: EMPTY QUEUE -> DISPLAY QR
+    if (!isActive || !active) {
+      currentActiveId = null;
+      stopTimer();
+
+      if (countdownEl) {
+        countdownEl.textContent = isPaused ? 'EN PAUSA' : '';
+      }
+
+      if (revealView) {
+        revealView.classList.add('hidden');
+      }
+      if (waitingView) {
+        waitingView.classList.remove('hidden');
+      }
+      return;
     }
-    if (revealEl) {
-      revealEl.classList.remove("hidden");
-      revealEl.classList.remove("revealAnim");
-      // Force reflow for animation restart
-      void revealEl.offsetWidth;
-      revealEl.classList.add("revealAnim");
+
+    // STATE B: ACTIVE PARTICIPANT REVEAL
+    if (waitingView) {
+      waitingView.classList.add('hidden');
+    }
+    if (revealView) {
+      revealView.classList.remove('hidden');
+    }
+
+    // Trigger animation when active participant changes
+    if (currentActiveId !== activeId) {
+      currentActiveId = activeId;
+
+      if (personEl) {
+        personEl.textContent = active.name || 'ANÓNIMO';
+      }
+
+      if (phraseEl) {
+        phraseEl.textContent = active.phrase ? `«${active.phrase}»` : '';
+      }
+
+      // Re-trigger impact animation
+      const revealContent = revealView?.querySelector('.reveal-content');
+      if (revealContent) {
+        revealContent.style.animation = 'none';
+        void revealContent.offsetWidth; // trigger reflow
+        revealContent.style.animation = '';
+      }
+    }
+
+    startTimer(remainingMs, durationMs, isPaused);
+  }
+
+  /**
+   * Main polling cycle
+   */
+  async function pollState() {
+    try {
+      const response = await fetch('/api/state', {
+        headers: { Accept: 'application/json' },
+        cache: 'no-store'
+      });
+
+      if (response.ok) {
+        const data = await response.json();
+        renderState(data);
+      } else {
+        setConnectionStatus('reconnecting');
+      }
+    } catch (err) {
+      setConnectionStatus('disconnected');
     }
   }
 
-  startCountdown(state.remainingMs, Boolean(state.paused));
-}
+  // Initialize
+  setConnectionStatus('connecting');
+  initQRCode();
+  pollState();
+  pollInterval = setInterval(pollState, 1500);
 
-const socket = io({
-  transports: ["websocket", "polling"],
-  reconnection: true,
-  reconnectionAttempts: Infinity,
-  reconnectionDelay: 500,
-  reconnectionDelayMax: 2000,
-  timeout: 10000
-});
-
-setConnectionState("connecting");
-
-socket.on("connect", () => {
-  setConnectionState("connected");
-  socket.emit("request:state");
-});
-
-socket.on("reconnect_attempt", () => {
-  setConnectionState("reconnecting");
-});
-
-socket.on("reconnect", () => {
-  setConnectionState("connected");
-  socket.emit("request:state");
-});
-
-socket.on("disconnect", (reason) => {
-  if (reason === "io server disconnect") {
-    setConnectionState("disconnected");
-  } else {
-    setConnectionState("reconnecting");
-  }
-});
-
-socket.on("connect_error", (error) => {
-  setConnectionState("reconnecting");
-  if (error && error.message === "unauthorized") {
-    window.location.replace("/login?next=%2Fscreen");
-  }
-});
-
-socket.on("error", () => {
-  setConnectionState("reconnecting");
-});
-
-socket.on("state", showState);
-socket.on("state:private", showState);
-
-setupQR();
+  window.addEventListener('beforeunload', () => {
+    clearInterval(pollInterval);
+    clearInterval(timerInterval);
+    clearTimeout(cursorTimeout);
+  });
+})();

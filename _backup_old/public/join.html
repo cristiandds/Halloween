@@ -1,0 +1,139 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+  <title>Invocación | Halloween</title>
+  <meta name="description" content="Únete a la invocación del evento Halloween.">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Creepster&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/css/join.css">
+</head>
+<body>
+  <div class="bg-orbs" aria-hidden="true">
+    <span class="orb orb-1"></span>
+    <span class="orb orb-2"></span>
+    <span class="orb orb-3"></span>
+  </div>
+  <main class="container" role="main">
+    <section class="card" aria-live="polite">
+      <header class="card-header">
+        <div class="pumpkin" aria-hidden="true">🎃</div>
+        <h1 class="title">Ritual de Invocación</h1>
+        <p class="subtitle">Escribe tu nombre y deja que la oscuridad te revele.</p>
+      </header>
+
+      <!-- Formulario disponible -->
+      <section id="state-form" class="state-panel active" aria-labelledby="form-title">
+        <h2 id="form-title" class="visually-hidden">Formulario de inscripción</h2>
+        <form id="invocation-form" novalidate autocomplete="off">
+          <div class="form-group">
+            <label for="participant-name" class="field-label">¿Cómo te llamas?</label>
+            <input
+              id="participant-name"
+              class="field-input"
+              name="name"
+              type="text"
+              maxlength="32"
+              minlength="2"
+              autocomplete="given-name"
+              inputmode="text"
+              spellcheck="false"
+              autocorrect="off"
+              autocapitalize="words"
+              placeholder="Escribe tu nombre aquí..."
+              aria-describedby="name-help name-warning"
+              required
+            >
+            <small id="name-help" class="field-help">Entre 2 y 32 caracteres. Solo letras, números, espacios, punto, apóstrofe o guion.</small>
+            <small id="name-warning" class="field-warning" aria-live="polite"></small>
+          </div>
+
+          <button id="submit-btn" class="submit-btn" type="submit">
+            <span class="btn-text">INVOCAR MI DESTINO</span>
+            <span class="btn-glow" aria-hidden="true"></span>
+          </button>
+        </form>
+        <p class="disclaimer">Tu nombre será mostrado públicamente durante el evento.</p>
+      </section>
+
+      <!-- Enviando -->
+      <section id="state-sending" class="state-panel" aria-live="polite" aria-busy="true">
+        <div class="status-icon sending" aria-hidden="true">
+          <span class="pulse"></span>
+          <span class="skull">💀</span>
+        </div>
+        <h2 class="status-title">Invocando...</h2>
+        <p class="status-message">Lanzando tu nombre al vacío oscuro.</p>
+        <div class="progress-bar" aria-hidden="true">
+          <div class="progress-fill"></div>
+        </div>
+      </section>
+
+      <!-- Envío confirmado / seguimiento -->
+      <section id="state-tracking" class="state-panel" aria-live="polite">
+        <div class="status-icon confirmed" aria-hidden="true">👻</div>
+        <h2 class="status-title" id="tracking-title">¡Invocación enviada!</h2>
+        <p class="status-message" id="tracking-message">Tu nombre ha sido recibido por las fuerzas oscuras.</p>
+
+        <div class="info-grid">
+          <article class="info-card" id="card-status">
+            <h3 class="info-label">Estado</h3>
+            <p class="info-value" id="info-status">-</p>
+          </article>
+          <article class="info-card" id="card-position" hidden>
+            <h3 class="info-label">Posición aproximada</h3>
+            <p class="info-value" id="info-position">-</p>
+          </article>
+          <article class="info-card" id="card-wait" hidden>
+            <h3 class="info-label">Tiempo estimado</h3>
+            <p class="info-value" id="info-wait">-</p>
+          </article>
+          <article class="info-card" id="card-approval" hidden>
+            <h3 class="info-label">Aprobación</h3>
+            <p class="info-value" id="info-approval">Requiere aprobación del organizador</p>
+          </article>
+        </div>
+
+        <div class="tracking-note">
+          <p id="tracking-detail">Mantén esta página abierta. Los estados se actualizan automáticamente.</p>
+        </div>
+
+        <button id="refresh-btn" class="secondary-btn" type="button">Actualizar estado</button>
+      </section>
+
+      <!-- Error -->
+      <section id="state-error" class="state-panel" aria-live="assertive">
+        <div class="status-icon error" aria-hidden="true">⚠️</div>
+        <h2 class="status-title">Algo salió mal</h2>
+        <p class="status-message" id="error-message">Ha ocurrido un error inesperado.</p>
+        <div class="error-actions">
+          <button id="retry-btn" class="submit-btn" type="button">
+            <span class="btn-text">Intentar de nuevo</span>
+            <span class="btn-glow" aria-hidden="true"></span>
+          </button>
+          <button id="back-to-form-btn" class="secondary-btn" type="button">Volver al formulario</button>
+        </div>
+      </section>
+
+      <!-- Evento cerrado -->
+      <section id="state-closed" class="state-panel" aria-live="polite">
+        <div class="status-icon closed" aria-hidden="true">🔒</div>
+        <h2 class="status-title">Invocaciones cerradas</h2>
+        <p class="status-message">Las inscripciones para este ritual han finalizado o están temporalmente pausadas.</p>
+        <p class="status-detail">Si ya te inscribiste, puedes seguir viendo el estado en esta misma página.</p>
+        <button id="check-status-btn" class="secondary-btn" type="button">Comprobar mi estado</button>
+      </section>
+    </section>
+
+    <footer class="page-footer">
+      <small>Protegido por el velo oscuro • Solo se envía la información necesaria</small>
+    </footer>
+  </main>
+
+  <div id="live-region" class="sr-only" aria-live="polite" aria-atomic="true"></div>
+  <script src="/socket.io/socket.io.js"></script>
+  <script src="/js/join.js"></script>
+</body>
+</html>

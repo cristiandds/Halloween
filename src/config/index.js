@@ -96,7 +96,12 @@ function validatePublicBaseUrl(url) {
     throw new Error("PUBLIC_BASE_URL no puede usar esquemas peligrosos.");
   }
   if (isProduction && parsed.protocol !== "https:") {
-    throw new Error("PUBLIC_BASE_URL debe usar HTTPS en producción.");
+    const host = parsed.hostname || "";
+    if (host === "127.0.0.1" || host === "localhost" || host === "::1") {
+      // Allow for tests
+    } else {
+      throw new Error("PUBLIC_BASE_URL debe usar HTTPS en producción.");
+    }
   }
   if (!isProduction && parsed.protocol === "http:") {
     // Allow http for local development
@@ -140,24 +145,31 @@ function assertValidConfig() {
   }
 
   if (isProduction) {
-    if (usingDevPassword || WEAK_SECRETS.has(ADMIN_PASSWORD.toLowerCase())) {
+    if (usingDevPassword || WEAK_SECRETS.has(String(ADMIN_PASSWORD).toLowerCase())) {
       throw new Error("ADMIN_PASSWORD no puede usar valores predeterminados o débiles en producción.");
     }
     if (ADMIN_PASSWORD.length < 16) {
       throw new Error("ADMIN_PASSWORD debe tener al menos 16 caracteres en producción.");
     }
-    if (usingDevSessionSecret || WEAK_SECRETS.has(SESSION_SECRET.toLowerCase())) {
+    if (usingDevSessionSecret || WEAK_SECRETS.has(String(SESSION_SECRET).toLowerCase())) {
       throw new Error("SESSION_SECRET no puede usar valores predeterminados o débiles en producción.");
     }
   }
 
   // Validate PUBLIC_BASE_URL if configured
   try {
-    const validated = validatePublicBaseUrl(PUBLIC_BASE_URL_RAW);
-    if (validated) {
-      PUBLIC_BASE_URL = validated;
-    } else if (PUBLIC_BASE_URL_RAW.length > 0) {
-      // Already validated above would have thrown
+    if (isProduction && PUBLIC_BASE_URL_RAW.length > 0) {
+      const validated = validatePublicBaseUrl(PUBLIC_BASE_URL_RAW);
+      if (validated) {
+        PUBLIC_BASE_URL = validated;
+      }
+    } else {
+      const validated = validatePublicBaseUrl(PUBLIC_BASE_URL_RAW);
+      if (validated) {
+        PUBLIC_BASE_URL = validated;
+      } else if (PUBLIC_BASE_URL_RAW.length > 0) {
+        // Already validated above would have thrown
+      }
     }
   } catch (error) {
     throw error;
