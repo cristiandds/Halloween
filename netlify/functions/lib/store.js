@@ -1,5 +1,6 @@
 const fs = require('fs');
 const path = require('path');
+const os = require('os');
 
 const HORROR_PHRASES = [
   "El eco de tus pasos no te pertenece...",
@@ -22,6 +23,7 @@ const HORROR_PHRASES = [
 const DEFAULT_DISPLAY_SECONDS = 15;
 const MAX_QUEUE_LENGTH = 100;
 const MAX_HISTORY_LENGTH = 50;
+const SCREEN_TIMEOUT_MS = 6000; // Screen polls every ~1.2s; 6s is ~4-5 missed polls
 
 // Rate limit memory cache for IP submissions
 const ipRateLimits = new Map();
@@ -58,36 +60,47 @@ function checkRateLimit(ip) {
 // Local file fallback path
 function getLocalFilePath() {
   const localDir = path.resolve(process.cwd(), '.data');
-  if (!fs.existsSync(localDir)) {
-    try {
+  try {
+    if (!fs.existsSync(localDir)) {
       fs.mkdirSync(localDir, { recursive: true });
-    } catch (e) {
-      // Fallback to /tmp if current dir is read-only
-      return path.resolve('/tmp', 'halloween-queue.json');
     }
+    return path.resolve(localDir, 'halloween-queue.json');
+  } catch (e) {
+    // Fallback to OS tmp directory if current dir is read-only (e.g. AWS Lambda without Blobs)
+    return path.resolve(os.tmpdir(), 'halloween-queue.json');
   }
-  return path.resolve(localDir, 'halloween-queue.json');
 }
 
-let cachedBlobsStore = null;
-let blobsFailed = false;
+function initBlobs(event = null) {
+  if (event && event.blobs) {
+    try {
+      const { connectLambda } = require('@netlify/blobs');
+      connectLambda(event);
+    } catch (e) {
+      // ignore
+    }
+  }
+}
 
-function getBlobsStore() {
-  if (blobsFailed) return null;
-  if (cachedBlobsStore) return cachedBlobsStore;
+function getBlobsStore(event = null) {
+  if (event) {
+    initBlobs(event);
+  }
   try {
     const { getStore } = require('@netlify/blobs');
-    cachedBlobsStore = getStore('halloween-queue');
-    return cachedBlobsStore;
+    // Enforce strong consistency for immediate read-after-write across serverless instances
+    return getStore({
+      name: 'halloween-queue',
+      consistency: 'strong'
+    });
   } catch (err) {
-    blobsFailed = true;
     return null;
   }
 }
 
 function createDefaultState() {
   return {
-    schemaVersion: 3,
+    schemaVersion: 4,
     active: null,
     queue: [],
     history: [],
@@ -96,21 +109,49 @@ function createDefaultState() {
     inscriptionsOpen: true,
     displaySeconds: DEFAULT_DISPLAY_SECONDS,
     nextId: 1,
+    lastScreenPing: 0,
     updatedAt: Date.now()
   };
 }
 
-async function loadRawState() {
-  const store = getBlobsStore();
+function isScreenConnected(state, now = Date.now()) {
+  return typeof state.lastScreenPing === 'number' && (now - state.lastScreenPing) < SCREEN_TIMEOUT_MS;
+}
+
+function sanitizeLoadedState(raw) {
+  const defaults = createDefaultState();
+  return {
+    schemaVersion: 4,
+    active: raw.active && typeof raw.active === 'object' ? {
+      id: raw.active.id,
+      name: raw.active.name,
+      phrase: raw.active.phrase,
+      startedAt: raw.active.startedAt,
+      durationMs: raw.active.durationMs,
+      frozenRemainingMs: typeof raw.active.frozenRemainingMs === 'number' ? raw.active.frozenRemainingMs : undefined
+    } : null,
+    queue: Array.isArray(raw.queue) ? raw.queue : [],
+    history: Array.isArray(raw.history) ? raw.history : [],
+    paused: Boolean(raw.paused),
+    pausedRemainingMs: typeof raw.pausedRemainingMs === 'number' ? raw.pausedRemainingMs : 0,
+    inscriptionsOpen: raw.inscriptionsOpen !== false,
+    displaySeconds: typeof raw.displaySeconds === 'number' ? raw.displaySeconds : DEFAULT_DISPLAY_SECONDS,
+    nextId: typeof raw.nextId === 'number' ? raw.nextId : ((raw.queue?.length || 0) + (raw.history?.length || 0) + 1),
+    lastScreenPing: typeof raw.lastScreenPing === 'number' ? raw.lastScreenPing : 0,
+    updatedAt: raw.updatedAt || Date.now()
+  };
+}
+
+async function loadRawState(event = null) {
+  const store = getBlobsStore(event);
   if (store) {
     try {
-      const data = await store.get('event-state', { type: 'json' });
+      const data = await store.get('event-state', { type: 'json', consistency: 'strong' });
       if (data && typeof data === 'object') {
         return sanitizeLoadedState(data);
       }
     } catch (err) {
-      // If Blobs fails at runtime, fallback to file
-      console.warn('Blobs read fallback:', err.message);
+      // Blobs failed or not configured, fallback to file
     }
   }
 
@@ -123,15 +164,15 @@ async function loadRawState() {
       return sanitizeLoadedState(data);
     }
   } catch (err) {
-    console.warn('File read error:', err.message);
+    // ignore
   }
 
   return createDefaultState();
 }
 
-async function saveRawState(state) {
+async function saveRawState(state, event = null) {
   state.updatedAt = Date.now();
-  const store = getBlobsStore();
+  const store = getBlobsStore(event);
   let savedToBlobs = false;
 
   if (store) {
@@ -139,7 +180,7 @@ async function saveRawState(state) {
       await store.setJSON('event-state', state);
       savedToBlobs = true;
     } catch (err) {
-      console.warn('Blobs write fallback:', err.message);
+      // Blobs save failed, fallback to file
     }
   }
 
@@ -156,22 +197,6 @@ async function saveRawState(state) {
   }
 }
 
-function sanitizeLoadedState(raw) {
-  const defaults = createDefaultState();
-  return {
-    schemaVersion: 3,
-    active: raw.active || null,
-    queue: Array.isArray(raw.queue) ? raw.queue : [],
-    history: Array.isArray(raw.history) ? raw.history : [],
-    paused: Boolean(raw.paused),
-    pausedRemainingMs: typeof raw.pausedRemainingMs === 'number' ? raw.pausedRemainingMs : 0,
-    inscriptionsOpen: raw.inscriptionsOpen !== false,
-    displaySeconds: typeof raw.displaySeconds === 'number' ? raw.displaySeconds : DEFAULT_DISPLAY_SECONDS,
-    nextId: typeof raw.nextId === 'number' ? raw.nextId : (raw.queue?.length || 0) + 1,
-    updatedAt: raw.updatedAt || Date.now()
-  };
-}
-
 function pickHorrorPhrase(avoidPhrase = null) {
   const pool = HORROR_PHRASES.filter(p => p !== avoidPhrase);
   const candidates = pool.length > 0 ? pool : HORROR_PHRASES;
@@ -180,67 +205,105 @@ function pickHorrorPhrase(avoidPhrase = null) {
 
 /**
  * Core state machine progression:
- * Called whenever state is queried. Advances active participant if 15s elapsed.
+ * Advances active participant when duration elapses IF screen is connected.
+ * Keeps participants in queue if screen is disconnected.
  */
-async function getAndAdvanceState() {
-  const state = await loadRawState();
+async function getAndAdvanceState(options = {}) {
+  const event = options.event || null;
+  const state = await loadRawState(event);
   const now = Date.now();
   let stateModified = false;
 
+  let isScreen = Boolean(options.isScreen);
+  if (!isScreen && event) {
+    const q = event.queryStringParameters || {};
+    const h = event.headers || {};
+    if (q.role === 'screen' || q.screen === '1' || h['x-screen-role'] === 'screen') {
+      isScreen = true;
+    }
+  }
+
+  // If this request comes from the screen projection, update last ping
+  if (isScreen) {
+    state.lastScreenPing = now;
+    stateModified = true;
+  }
+
   const durationMs = (state.displaySeconds || DEFAULT_DISPLAY_SECONDS) * 1000;
+  const screenActive = isScreenConnected(state, now);
 
   if (!state.paused) {
-    if (state.active) {
-      const startedAt = state.active.startedAt || now;
-      const elapsed = now - startedAt;
-      const participantDuration = state.active.durationMs || durationMs;
-
-      if (elapsed >= participantDuration) {
-        // Current participant finished!
-        const finishedParticipant = {
-          ...state.active,
-          finishedAt: now
-        };
-        state.history.unshift(finishedParticipant);
-        if (state.history.length > MAX_HISTORY_LENGTH) {
-          state.history.length = MAX_HISTORY_LENGTH;
+    if (screenActive) {
+      // Screen is CONNECTED
+      if (state.active) {
+        // If active was frozen while screen was disconnected, unfreeze and adjust startedAt
+        if (typeof state.active.frozenRemainingMs === 'number') {
+          const remaining = Math.max(1000, state.active.frozenRemainingMs);
+          state.active.startedAt = now - (state.active.durationMs - remaining);
+          delete state.active.frozenRemainingMs;
+          stateModified = true;
         }
 
-        // Advance to next if available
+        const startedAt = state.active.startedAt || now;
+        const elapsed = now - startedAt;
+        const participantDuration = state.active.durationMs || durationMs;
+
+        if (elapsed >= participantDuration) {
+          // Current participant finished their 15 seconds!
+          const finishedParticipant = {
+            ...state.active,
+            finishedAt: now
+          };
+          state.history.unshift(finishedParticipant);
+          if (state.history.length > MAX_HISTORY_LENGTH) {
+            state.history.length = MAX_HISTORY_LENGTH;
+          }
+
+          // Advance to next if queue has waiting participants (Requirement 4)
+          if (state.queue.length > 0) {
+            const next = state.queue.shift();
+            state.active = {
+              id: next.id,
+              name: next.name,
+              phrase: next.phrase || pickHorrorPhrase(finishedParticipant.phrase),
+              startedAt: now, // 15 SECONDS REAL TIME START RIGHT NOW! (Requirement 3)
+              durationMs: durationMs
+            };
+          } else {
+            // Queue is empty -> return to QR mode! (Requirement 5)
+            state.active = null;
+          }
+          stateModified = true;
+        }
+      } else {
+        // No active participant, but screen is connected: activate next from queue
         if (state.queue.length > 0) {
           const next = state.queue.shift();
+          const lastPhrase = state.history[0]?.phrase || null;
           state.active = {
             id: next.id,
             name: next.name,
-            phrase: next.phrase || pickHorrorPhrase(finishedParticipant.phrase),
-            startedAt: now,
+            phrase: next.phrase || pickHorrorPhrase(lastPhrase),
+            startedAt: now, // 15 SECONDS REAL TIME START RIGHT NOW! (Requirement 3)
             durationMs: durationMs
           };
-        } else {
-          // Queue is empty, return to QR mode!
-          state.active = null;
+          stateModified = true;
         }
-        stateModified = true;
       }
     } else {
-      // No active participant, but queue has items
-      if (state.queue.length > 0) {
-        const next = state.queue.shift();
-        const lastPhrase = state.history[0]?.phrase || null;
-        state.active = {
-          id: next.id,
-          name: next.name,
-          phrase: next.phrase || pickHorrorPhrase(lastPhrase),
-          startedAt: now,
-          durationMs: durationMs
-        };
+      // Screen is DISCONNECTED (Requirement 7)
+      // Do not advance queue. If someone was currently active, freeze their remaining time.
+      if (state.active && typeof state.active.frozenRemainingMs !== 'number') {
+        const elapsed = now - (state.active.startedAt || now);
+        const participantDuration = state.active.durationMs || durationMs;
+        state.active.frozenRemainingMs = Math.max(1000, participantDuration - elapsed);
         stateModified = true;
       }
     }
   }
 
   if (stateModified) {
-    await saveRawState(state);
+    await saveRawState(state, event);
   }
 
   // Calculate live remaining time for consumer
@@ -248,6 +311,8 @@ async function getAndAdvanceState() {
   if (state.active) {
     if (state.paused) {
       remainingMs = Math.max(0, state.pausedRemainingMs);
+    } else if (typeof state.active.frozenRemainingMs === 'number') {
+      remainingMs = state.active.frozenRemainingMs;
     } else {
       const elapsed = now - (state.active.startedAt || now);
       const participantDuration = state.active.durationMs || durationMs;
@@ -257,14 +322,16 @@ async function getAndAdvanceState() {
 
   return {
     state,
-    remainingMs
+    remainingMs,
+    screenConnected: screenActive
   };
 }
 
 /**
  * Add a new participant from /join
+ * Always places in queue so participant never appears "EN PANTALLA" incorrectly
  */
-async function addParticipant(rawName, ip = null) {
+async function addParticipant(rawName, ip = null, event = null) {
   if (!checkRateLimit(ip)) {
     return {
       ok: false,
@@ -273,7 +340,8 @@ async function addParticipant(rawName, ip = null) {
     };
   }
 
-  const { state } = await getAndAdvanceState();
+  const state = await loadRawState(event);
+  const now = Date.now();
 
   if (!state.inscriptionsOpen) {
     return {
@@ -327,9 +395,6 @@ async function addParticipant(rawName, ip = null) {
   const lastPhrase = state.active?.phrase || state.history[0]?.phrase || null;
   const phrase = pickHorrorPhrase(lastPhrase);
 
-  const durationMs = (state.displaySeconds || DEFAULT_DISPLAY_SECONDS) * 1000;
-  const now = Date.now();
-
   const participant = {
     id: newId,
     name,
@@ -337,61 +402,57 @@ async function addParticipant(rawName, ip = null) {
     registeredAt: now
   };
 
-  // If there is no active participant and queue is not paused, activate immediately
-  if (!state.active && !state.paused) {
-    state.active = {
-      ...participant,
-      startedAt: now,
-      durationMs: durationMs
-    };
-    await saveRawState(state);
-    return {
-      ok: true,
-      id: newId,
-      name,
-      position: 1,
-      isActive: true,
-      estimatedWaitSeconds: 0
-    };
-  }
-
-  // Otherwise, append to queue
+  // Always append to queue (Requirement 4, 6)
   state.queue.push(participant);
-  await saveRawState(state);
+  await saveRawState(state, event);
 
-  const position = state.queue.length + (state.active ? 1 : 0);
-  const remainingActiveSeconds = state.active ? Math.ceil(((state.active.startedAt + (state.active.durationMs || durationMs)) - now) / 1000) : 0;
-  const estimatedWaitSeconds = Math.max(0, remainingActiveSeconds + (state.queue.length - 1) * (state.displaySeconds || DEFAULT_DISPLAY_SECONDS));
+  const durationSec = state.displaySeconds || DEFAULT_DISPLAY_SECONDS;
+  const position = state.queue.length; // Position in waiting queue
+
+  let remainingActiveSec = 0;
+  if (state.active) {
+    remainingActiveSec = Math.max(0, Math.ceil(((state.active.startedAt + (state.active.durationMs || durationSec * 1000)) - now) / 1000));
+  }
+  const estimatedWaitSeconds = remainingActiveSec + ((position - 1) * durationSec);
 
   return {
     ok: true,
     id: newId,
     name,
     position,
-    isActive: false,
-    estimatedWaitSeconds
+    isActive: false, // Never active immediately on submit (Requirement 6)
+    status: 'waiting',
+    screenConnected: isScreenConnected(state, now),
+    estimatedWaitSeconds: Math.max(0, estimatedWaitSeconds)
   };
 }
 
 /**
  * Admin action: Pause projection
  */
-async function pauseQueue() {
-  const { state, remainingMs } = await getAndAdvanceState();
+async function pauseQueue(event = null) {
+  const state = await loadRawState(event);
   if (state.paused) {
     return { ok: true, paused: true };
   }
+  const now = Date.now();
+  const durationMs = (state.displaySeconds || DEFAULT_DISPLAY_SECONDS) * 1000;
+  let remainingMs = 0;
+  if (state.active) {
+    const elapsed = now - (state.active.startedAt || now);
+    remainingMs = Math.max(0, (state.active.durationMs || durationMs) - elapsed);
+  }
   state.paused = true;
   state.pausedRemainingMs = remainingMs;
-  await saveRawState(state);
+  await saveRawState(state, event);
   return { ok: true, paused: true, remainingMs };
 }
 
 /**
  * Admin action: Resume projection
  */
-async function resumeQueue() {
-  const { state } = await getAndAdvanceState();
+async function resumeQueue(event = null) {
+  const state = await loadRawState(event);
   if (!state.paused) {
     return { ok: true, paused: false };
   }
@@ -403,6 +464,7 @@ async function resumeQueue() {
     const remaining = typeof state.pausedRemainingMs === 'number' ? state.pausedRemainingMs : durationMs;
     state.active.startedAt = now - (durationMs - remaining);
     state.active.durationMs = durationMs;
+    delete state.active.frozenRemainingMs;
   } else if (state.queue.length > 0) {
     const next = state.queue.shift();
     state.active = {
@@ -415,15 +477,15 @@ async function resumeQueue() {
   }
 
   state.pausedRemainingMs = 0;
-  await saveRawState(state);
+  await saveRawState(state, event);
   return { ok: true, paused: false };
 }
 
 /**
  * Admin action: Skip to next participant
  */
-async function nextParticipant() {
-  const state = await loadRawState();
+async function nextParticipant(event = null) {
+  const state = await loadRawState(event);
   const now = Date.now();
   const durationMs = (state.displaySeconds || DEFAULT_DISPLAY_SECONDS) * 1000;
 
@@ -450,42 +512,58 @@ async function nextParticipant() {
     state.active = null;
   }
 
-  state.pausedRemainingMs = durationMs;
-  await saveRawState(state);
+  state.pausedRemainingMs = 0;
+  await saveRawState(state, event);
   return { ok: true, active: state.active };
 }
 
 /**
  * Admin action: Clear waiting queue
  */
-async function clearQueue() {
-  const state = await loadRawState();
+async function clearQueue(event = null) {
+  const state = await loadRawState(event);
   state.queue = [];
   state.active = null;
   state.paused = false;
   state.pausedRemainingMs = 0;
-  await saveRawState(state);
+  await saveRawState(state, event);
   return { ok: true, message: "Cola vaciada exitosamente." };
 }
 
 /**
  * Admin action: Toggle inscriptions
  */
-async function toggleInscriptions(open = null) {
-  const state = await loadRawState();
+async function toggleInscriptions(open = null, event = null) {
+  const state = await loadRawState(event);
   state.inscriptionsOpen = open !== null ? Boolean(open) : !state.inscriptionsOpen;
-  await saveRawState(state);
+  await saveRawState(state, event);
   return { ok: true, inscriptionsOpen: state.inscriptionsOpen };
 }
 
 /**
  * Get participant status for mobile tracking
+ * Read-only status query: does not mutate or advance projection queue
  */
-async function getParticipantStatus(participantId) {
-  const { state, remainingMs } = await getAndAdvanceState();
+async function getParticipantStatus(participantId, event = null) {
+  const state = await loadRawState(event);
   const pid = Number(participantId);
+  const now = Date.now();
+  const durationSec = state.displaySeconds || DEFAULT_DISPLAY_SECONDS;
+  const durationMs = durationSec * 1000;
+  const screenActive = isScreenConnected(state, now);
 
+  // Check 1: Is this participant currently active?
   if (state.active && state.active.id === pid) {
+    let remainingSec = 0;
+    if (state.paused) {
+      remainingSec = Math.ceil((state.pausedRemainingMs || 0) / 1000);
+    } else if (typeof state.active.frozenRemainingMs === 'number') {
+      remainingSec = Math.ceil(state.active.frozenRemainingMs / 1000);
+    } else {
+      const elapsed = now - (state.active.startedAt || now);
+      remainingSec = Math.max(0, Math.ceil((durationMs - elapsed) / 1000));
+    }
+
     return {
       found: true,
       state: 'active',
@@ -493,24 +571,37 @@ async function getParticipantStatus(participantId) {
       phrase: state.active.phrase,
       position: 1,
       estimatedWaitSeconds: 0,
-      remainingSeconds: Math.ceil(remainingMs / 1000)
+      remainingSeconds: remainingSec,
+      screenConnected: screenActive
     };
   }
 
+  // Check 2: Is this participant waiting in queue?
   const qIndex = state.queue.findIndex(p => p.id === pid);
   if (qIndex >= 0) {
-    const position = qIndex + (state.active ? 2 : 1);
-    const duration = state.displaySeconds || DEFAULT_DISPLAY_SECONDS;
-    const estimatedWait = Math.ceil(remainingMs / 1000) + (qIndex * duration);
+    const position = qIndex + 1; // 1-based position in waiting queue
+    let remainingActiveSec = 0;
+    if (state.active) {
+      if (typeof state.active.frozenRemainingMs === 'number') {
+        remainingActiveSec = Math.ceil(state.active.frozenRemainingMs / 1000);
+      } else {
+        const elapsed = now - (state.active.startedAt || now);
+        remainingActiveSec = Math.max(0, Math.ceil((durationMs - elapsed) / 1000));
+      }
+    }
+
+    const estimatedWait = remainingActiveSec + (qIndex * durationSec);
     return {
       found: true,
       state: 'waiting',
       name: state.queue[qIndex].name,
       position,
-      estimatedWaitSeconds: estimatedWait
+      estimatedWaitSeconds: estimatedWait,
+      screenConnected: screenActive
     };
   }
 
+  // Check 3: Is this participant in history (completed)?
   const historyMatch = state.history.find(p => p.id === pid);
   if (historyMatch) {
     return {
@@ -518,7 +609,8 @@ async function getParticipantStatus(participantId) {
       state: 'completed',
       name: historyMatch.name,
       position: null,
-      estimatedWaitSeconds: null
+      estimatedWaitSeconds: null,
+      screenConnected: screenActive
     };
   }
 
@@ -538,5 +630,8 @@ module.exports = {
   nextParticipant,
   clearQueue,
   toggleInscriptions,
-  getParticipantStatus
+  getParticipantStatus,
+  isScreenConnected,
+  loadRawState,
+  saveRawState
 };

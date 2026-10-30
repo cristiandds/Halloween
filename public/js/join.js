@@ -125,8 +125,9 @@
         id: data.id,
         name: data.name || nameVal,
         position: data.position || 1,
-        isActive: Boolean(data.isActive),
-        estimatedWaitSeconds: data.estimatedWaitSeconds || 0,
+        isActive: false, // Placed in queue; never "EN PANTALLA" immediately at submission
+        screenConnected: data.screenConnected !== false,
+        estimatedWaitSeconds: data.estimatedWaitSeconds || 15,
         submittedAt: Date.now()
       };
       saveSession(currentParticipant);
@@ -170,7 +171,11 @@
       }
       if (trackWait) {
         const sec = participant.estimatedWaitSeconds || 15;
-        trackWait.textContent = sec < 60 ? `~${sec}s` : `~${Math.ceil(sec / 60)}m`;
+        if (participant.screenConnected === false) {
+          trackWait.textContent = 'En espera...';
+        } else {
+          trackWait.textContent = sec < 60 ? `~${sec}s` : `~${Math.ceil(sec / 60)}m`;
+        }
       }
       if (activeAlertBox) activeAlertBox.classList.add('hidden');
     }
@@ -185,7 +190,6 @@
       });
 
       if (response.status === 404) {
-        // Not found / expired
         return;
       }
 
@@ -195,10 +199,12 @@
         if (data.state === 'active') {
           currentParticipant.isActive = true;
           currentParticipant.position = 1;
+          currentParticipant.screenConnected = true;
           renderTrackingView(currentParticipant);
         } else if (data.state === 'waiting') {
           currentParticipant.isActive = false;
           currentParticipant.position = data.position;
+          currentParticipant.screenConnected = data.screenConnected !== false;
           currentParticipant.estimatedWaitSeconds = data.estimatedWaitSeconds;
           renderTrackingView(currentParticipant);
         } else if (data.state === 'completed') {
@@ -223,7 +229,7 @@
   function startTracking() {
     stopTracking();
     pollParticipantStatus();
-    pollTimer = setInterval(pollParticipantStatus, 3000);
+    pollTimer = setInterval(pollParticipantStatus, 2000);
   }
 
   function stopTracking() {

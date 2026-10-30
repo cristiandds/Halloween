@@ -22,7 +22,12 @@
   // Internal state
   let currentActiveId = null;
   let timerInterval = null;
+  let timerStartedAt = 0;
+  let timerDurationMs = 15000;
+  let timerRemainingMs = 15000;
+  let timerPaused = false;
   let pollInterval = null;
+  let isPolling = false;
   let cursorTimeout = null;
   let resolvedJoinUrl = '';
   let serverOffsetMs = 0;
@@ -172,20 +177,21 @@
 
   function startTimer(remainingMs, totalDurationMs, isPaused) {
     stopTimer();
-    const total = totalDurationMs || lastDurationMs || 15000;
-    const initialRemaining = Math.max(0, Number(remainingMs) || total);
-    const startTimestamp = Date.now();
+    timerDurationMs = totalDurationMs || lastDurationMs || 15000;
+    timerRemainingMs = Math.max(0, Number(remainingMs) || timerDurationMs);
+    timerStartedAt = Date.now();
+    timerPaused = Boolean(isPaused);
 
     const updateTimer = () => {
       let currentRemaining;
-      if (isPaused) {
-        currentRemaining = initialRemaining;
+      if (timerPaused) {
+        currentRemaining = timerRemainingMs;
       } else {
-        const elapsed = Date.now() - startTimestamp;
-        currentRemaining = Math.max(0, initialRemaining - elapsed);
+        const elapsed = Date.now() - timerStartedAt;
+        currentRemaining = Math.max(0, timerRemainingMs - elapsed);
       }
 
-      const fraction = Math.max(0, Math.min(1, currentRemaining / total));
+      const fraction = Math.max(0, Math.min(1, currentRemaining / timerDurationMs));
       const secondsLeft = Math.ceil(currentRemaining / 1000);
 
       if (timerProgress) {
@@ -193,17 +199,22 @@
       }
 
       if (countdownEl) {
-        if (isPaused) {
+        if (timerPaused) {
           countdownEl.textContent = `PAUSA • ${secondsLeft}s`;
         } else {
           countdownEl.textContent = `${secondsLeft}s`;
         }
       }
+
+      if (currentRemaining <= 0 && !timerPaused) {
+        stopTimer();
+        pollState(); // Trigger immediate state fetch when 15 seconds finish
+      }
     };
 
     updateTimer();
-    if (!isPaused) {
-      timerInterval = setInterval(updateTimer, 200);
+    if (!timerPaused) {
+      timerInterval = setInterval(updateTimer, 100);
     }
   }
 
@@ -219,7 +230,7 @@
 
     const isActive = data.status === 'active' || Boolean(data.active);
     const active = data.active || null;
-    const activeId = active ? (active.id || active.name) : null;
+    const activeId = active ? active.id : null;
     const remainingMs = typeof data.remainingMs === 'number' ? data.remainingMs : (typeof data.timeRemaining === 'number' ? data.timeRemaining * 1000 : 15000);
     const durationMs = (data.displaySeconds || 15) * 1000;
     const waitingCount = typeof data.waiting === 'number' ? data.waiting : 0;
@@ -260,7 +271,7 @@
       revealView.classList.remove('hidden');
     }
 
-    // Trigger animation when active participant changes
+    // Trigger animation only when active participant changes!
     if (currentActiveId !== activeId) {
       currentActiveId = activeId;
 
@@ -279,18 +290,35 @@
         void revealContent.offsetWidth; // trigger reflow
         revealContent.style.animation = '';
       }
-    }
 
-    startTimer(remainingMs, durationMs, isPaused);
+      startTimer(remainingMs, durationMs, isPaused);
+    } else {
+      // Same participant is active: sync timer if paused state changed or drift > 1.5s
+      if (isPaused !== timerPaused) {
+        startTimer(remainingMs, durationMs, isPaused);
+      } else if (!timerPaused) {
+        const localRemaining = Math.max(0, timerRemainingMs - (Date.now() - timerStartedAt));
+        if (Math.abs(localRemaining - remainingMs) > 1500) {
+          timerRemainingMs = remainingMs;
+          timerStartedAt = Date.now();
+        }
+      }
+    }
   }
 
   /**
    * Main polling cycle
    */
   async function pollState() {
+    if (isPolling) return;
+    isPolling = true;
+
     try {
-      const response = await fetch('/api/state', {
-        headers: { Accept: 'application/json' },
+      const response = await fetch('/api/state?role=screen', {
+        headers: {
+          'Accept': 'application/json',
+          'X-Screen-Role': 'screen'
+        },
         cache: 'no-store'
       });
 
@@ -302,6 +330,8 @@
       }
     } catch (err) {
       setConnectionStatus('disconnected');
+    } finally {
+      isPolling = false;
     }
   }
 
@@ -309,11 +339,11 @@
   setConnectionStatus('connecting');
   initQRCode();
   pollState();
-  pollInterval = setInterval(pollState, 1500);
+  pollInterval = setInterval(pollState, 1200);
 
   window.addEventListener('beforeunload', () => {
     clearInterval(pollInterval);
-    clearInterval(timerInterval);
+    stopTimer();
     clearTimeout(cursorTimeout);
   });
 })();

@@ -142,7 +142,10 @@
     if (statRemaining) statRemaining.textContent = active ? `${remainingSec}s` : '-';
 
     if (statProjection) {
-      if (isPaused) {
+      if (data.screenConnected === false) {
+        statProjection.textContent = 'PANTALLA DESCONECTADA';
+        statProjection.style.color = '#f87171';
+      } else if (isPaused) {
         statProjection.textContent = 'EN PAUSA';
         statProjection.style.color = '#fbbf24';
       } else if (active) {

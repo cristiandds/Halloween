@@ -47,34 +47,38 @@ exports.handler = async (event) => {
   try {
     // Action routing
     if (action === 'pause' || action === 'queue-pause') {
-      const res = await pauseQueue();
+      const res = await pauseQueue(event);
       return json(200, res);
     }
 
     if (action === 'resume' || action === 'queue-resume') {
-      const res = await resumeQueue();
+      const res = await resumeQueue(event);
       return json(200, res);
     }
 
     if (action === 'next' || action === 'queue-next') {
-      const res = await nextParticipant();
+      const res = await nextParticipant(event);
       return json(200, res);
     }
 
     if (action === 'clear' || action === 'queue-clear' || action === 'empty') {
-      const res = await clearQueue();
+      const res = await clearQueue(event);
       return json(200, res);
     }
 
     if (action === 'toggle' || action === 'inscriptions-toggle') {
       let body = {};
       try { body = JSON.parse(event.body || '{}'); } catch (e) {}
-      const res = await toggleInscriptions(body.open);
+      const res = await toggleInscriptions(body.open, event);
       return json(200, res);
     }
 
     // Default: return full admin state
-    const { state, remainingMs } = await getAndAdvanceState();
+    const { state, remainingMs, screenConnected } = await getAndAdvanceState({
+      isScreen: false,
+      event
+    });
+
     return json(200, {
       ok: true,
       active: state.active,
@@ -85,7 +89,8 @@ exports.handler = async (event) => {
       remainingMs,
       timeRemaining: Math.ceil(remainingMs / 1000),
       inscriptionsOpen: state.inscriptionsOpen,
-      displaySeconds: state.displaySeconds || 15
+      displaySeconds: state.displaySeconds || 15,
+      screenConnected
     });
   } catch (err) {
     console.error('Error in admin handler:', err);

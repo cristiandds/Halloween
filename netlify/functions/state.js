@@ -1,9 +1,17 @@
 const { getAndAdvanceState } = require('./lib/store');
 const { json } = require('./utils');
 
-exports.handler = async () => {
+exports.handler = async (event) => {
   try {
-    const { state, remainingMs } = await getAndAdvanceState();
+    const query = event?.queryStringParameters || {};
+    const headers = event?.headers || {};
+    // Identify if the request comes from the projection screen
+    const isScreen = query.role === 'screen' || query.screen === '1' || headers['x-screen-role'] === 'screen';
+
+    const { state, remainingMs, screenConnected } = await getAndAdvanceState({
+      isScreen,
+      event
+    });
 
     const isActive = Boolean(state.active);
     const activeName = state.active ? state.active.name : null;
@@ -24,6 +32,7 @@ exports.handler = async () => {
       paused: state.paused,
       displaySeconds: state.displaySeconds || 15,
       inscriptionsOpen: state.inscriptionsOpen,
+      screenConnected,
       serverTime: Date.now()
     });
   } catch (err) {

@@ -23,7 +23,7 @@ exports.handler = async (event) => {
     const name = body.name || '';
     const ip = getClientIp(event);
 
-    const result = await addParticipant(name, ip);
+    const result = await addParticipant(name, ip, event);
 
     if (!result.ok) {
       return json(result.status || 400, { error: result.error });
@@ -35,7 +35,9 @@ exports.handler = async (event) => {
       id: result.id,
       name: result.name,
       position: result.position,
-      isActive: result.isActive,
+      isActive: false, // In queue, never active immediately at submit
+      status: 'waiting',
+      screenConnected: result.screenConnected,
       estimatedWaitSeconds: result.estimatedWaitSeconds
     });
   } catch (err) {
