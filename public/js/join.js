@@ -27,6 +27,7 @@
   const trackWait = document.querySelector('#track-wait');
   const activeAlertBox = document.querySelector('#active-alert-box');
   const refreshTrackBtn = document.querySelector('#refresh-track-btn');
+  const registerAnotherBtn = document.querySelector('#register-another-btn');
   const backToFormBtn = document.querySelector('#back-to-form-btn');
   const retryOpenBtn = document.querySelector('#retry-open-btn');
   const errorMessageEl = document.querySelector('#error-message');
@@ -35,6 +36,7 @@
   let currentParticipant = loadSession();
   let pollTimer = null;
   let isSubmitting = false;
+  let isPollingStatus = false;
 
   function loadSession() {
     try {
@@ -146,10 +148,28 @@
     }
   });
 
+  function showTrackingState(title, message, badge, position = '-', wait = '-') {
+    setPanel(stateTracking);
+    if (trackingTitle) trackingTitle.textContent = title;
+    if (trackingMessage) trackingMessage.textContent = message;
+    if (trackStatusBadge) {
+      trackStatusBadge.textContent = badge;
+      trackStatusBadge.className = 'track-value badge-waiting';
+    }
+    if (trackPosition) trackPosition.textContent = position;
+    if (trackWait) trackWait.textContent = wait;
+    if (activeAlertBox) activeAlertBox.classList.add('hidden');
+  }
+
   function renderTrackingView(participant) {
     setPanel(stateTracking);
 
-    if (participant.isActive) {
+    // Never claim projection when the screen is offline or its timer expired.
+    if (participant.isActive && participant.screenConnected === false) {
+      showTrackingState('PANTALLA DESCONECTADA', 'Tu turno está reservado, pero la pantalla no está conectada.', 'En espera', 'PAUSADO', '...');
+    } else if (participant.isActive && !(participant.remainingSeconds > 0)) {
+      showTrackingState('SINCRONIZANDO...', 'Esperando confirmación de la proyección.', 'Verificando', '...', '...');
+    } else if (participant.isActive) {
       if (trackingTitle) trackingTitle.textContent = '¡EN PANTALLA!';
       if (trackingMessage) trackingMessage.textContent = 'Tu nombre se está proyectando en este momento.';
       if (trackStatusBadge) {
@@ -157,7 +177,7 @@
         trackStatusBadge.className = 'track-value badge-active';
       }
       if (trackPosition) trackPosition.textContent = 'AHORA';
-      if (trackWait) trackWait.textContent = '0s';
+      if (trackWait) trackWait.textContent = `${Math.ceil(participant.remainingSeconds)}s`;
       if (activeAlertBox) activeAlertBox.classList.remove('hidden');
     } else {
       if (trackingTitle) trackingTitle.textContent = '¡INVOCACIÓN ENVIADA!';
@@ -181,48 +201,63 @@
     }
   }
 
+  function endTracking(message, title = 'RITUAL CONCLUIDO', badge = 'Finalizado') {
+    stopTracking();
+    clearSession();
+    currentParticipant = null;
+    showTrackingState(title, message, badge, 'LISTO');
+  }
+
   async function pollParticipantStatus() {
-    if (!currentParticipant || !currentParticipant.id) return;
+    if (!currentParticipant || !currentParticipant.id || isPollingStatus) return;
+    const queriedId = currentParticipant.id;
+    isPollingStatus = true;
 
     try {
-      const response = await fetch(`/api/participant/status?id=${encodeURIComponent(currentParticipant.id)}`, {
+      const response = await fetch(`/api/participant/status?id=${encodeURIComponent(queriedId)}`, {
         cache: 'no-store'
       });
 
+      // The user may have pressed "Registrar otro nombre" while this was loading.
+      if (!currentParticipant || currentParticipant.id !== queriedId) return;
+
       if (response.status === 404) {
+        endTracking('No encontramos este registro. Puedes registrar otro nombre.', 'REGISTRO NO DISPONIBLE', 'No encontrado');
         return;
       }
 
-      if (response.ok) {
-        const data = await response.json();
+      if (!response.ok) {
+        throw new Error(`Estado HTTP ${response.status}`);
+      }
 
-        if (data.state === 'active') {
-          currentParticipant.isActive = true;
-          currentParticipant.position = 1;
-          currentParticipant.screenConnected = true;
-          renderTrackingView(currentParticipant);
-        } else if (data.state === 'waiting') {
-          currentParticipant.isActive = false;
-          currentParticipant.position = data.position;
-          currentParticipant.screenConnected = data.screenConnected !== false;
-          currentParticipant.estimatedWaitSeconds = data.estimatedWaitSeconds;
-          renderTrackingView(currentParticipant);
-        } else if (data.state === 'completed') {
-          if (trackingTitle) trackingTitle.textContent = 'RITUAL CONCLUIDO';
-          if (trackingMessage) trackingMessage.textContent = 'Tu turno en la pantalla ha finalizado. ¡Gracias por participar!';
-          if (trackStatusBadge) {
-            trackStatusBadge.textContent = 'Finalizado';
-            trackStatusBadge.className = 'track-value';
-          }
-          if (trackPosition) trackPosition.textContent = 'LISTO';
-          if (trackWait) trackWait.textContent = '-';
-          if (activeAlertBox) activeAlertBox.classList.add('hidden');
-          stopTracking();
-          clearSession();
-        }
+      const data = await response.json();
+      if (!currentParticipant || currentParticipant.id !== queriedId) return;
+
+      if (data.state === 'active') {
+        currentParticipant.isActive = true;
+        currentParticipant.position = 1;
+        currentParticipant.screenConnected = data.screenConnected === true;
+        currentParticipant.remainingSeconds = Math.max(0, Number(data.remainingSeconds) || 0);
+        renderTrackingView(currentParticipant);
+      } else if (data.state === 'waiting') {
+        currentParticipant.isActive = false;
+        currentParticipant.position = data.position;
+        currentParticipant.screenConnected = data.screenConnected === true;
+        currentParticipant.estimatedWaitSeconds = data.estimatedWaitSeconds;
+        renderTrackingView(currentParticipant);
+      } else if (data.state === 'completed') {
+        endTracking('Tu turno ha finalizado. Puedes registrar otro nombre.', 'RITUAL CONCLUIDO', 'Finalizado');
+      } else {
+        showTrackingState('ESTADO DESCONOCIDO', 'No fue posible confirmar el turno. Puedes actualizar o registrar otro nombre.', 'Verificar');
       }
     } catch (err) {
-      console.warn('Error polling participant status:', err);
+      // Do not leave a stale green "EN PANTALLA" alert after losing the API.
+      if (currentParticipant && currentParticipant.id === queriedId) {
+        console.warn('Error polling participant status:', err);
+        showTrackingState('SIN CONEXIÓN', 'No se pudo verificar el estado de la proyección. Se intentará de nuevo.', 'Reconectando');
+      }
+    } finally {
+      isPollingStatus = false;
     }
   }
 
@@ -240,6 +275,17 @@
   }
 
   refreshTrackBtn?.addEventListener('click', pollParticipantStatus);
+
+  // Register another person without cancelling the previous person's place.
+  registerAnotherBtn?.addEventListener('click', () => {
+    stopTracking();
+    currentParticipant = null;
+    clearSession();
+    form?.reset();
+    if (warningEl) warningEl.textContent = '';
+    setPanel(stateForm);
+    nameInput?.focus();
+  });
 
   backToFormBtn?.addEventListener('click', () => {
     setPanel(stateForm);
@@ -266,6 +312,9 @@
   // Initialization check on page load
   window.addEventListener('load', async () => {
     if (currentParticipant && currentParticipant.id) {
+      // Persisted flags are never proof that a name is currently on screen.
+      currentParticipant.isActive = false;
+      currentParticipant.screenConnected = false;
       renderTrackingView(currentParticipant);
       startTracking();
       return;

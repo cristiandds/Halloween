@@ -457,3 +457,22 @@ body {
   clip: rect(0, 0, 0, 0);
   border: 0;
 }
+
+/* Allow many guests to register from a single phone without getting stuck. */
+.tracking-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+}
+.register-another-btn {
+  color: #fff;
+  font-weight: 700;
+  border-color: rgba(248, 113, 113, .75);
+  background: rgba(153, 27, 27, .2);
+}
+.registration-note {
+  margin-top: 12px;
+  margin-bottom: 0;
+}

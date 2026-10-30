@@ -8,7 +8,8 @@
     "start": "node server.js",
     "dev": "node server.js",
     "dev:netlify": "npx netlify dev",
-    "test": "node --test"
+    "test": "node --test",
+    "build": "node -e \"console.log('Sitio estatico: no se requiere compilacion')\""
   },
   "engines": {
     "node": ">=20"

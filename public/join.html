@@ -101,7 +101,11 @@
 
         <div class="tracking-footer">
           <p class="tracking-subtext">Mantén esta pantalla abierta. Se actualiza en tiempo real.</p>
-          <button id="refresh-track-btn" class="subtle-btn" type="button">Actualizar estado</button>
+          <div class="tracking-actions">
+            <button id="refresh-track-btn" class="subtle-btn" type="button">Actualizar estado</button>
+            <button id="register-another-btn" class="subtle-btn register-another-btn" type="button">+ Registrar otro nombre</button>
+          </div>
+          <p class="tracking-subtext registration-note">El nombre anterior seguirá en la cola o proyección aunque registres otro.</p>
         </div>
       </section>
 
@@ -123,6 +127,6 @@
     </div>
   </main>
 
-  <script src="/js/join.js"></script>
+  <script src="/js/join.js?v=4"></script>
 </body>
 </html>
