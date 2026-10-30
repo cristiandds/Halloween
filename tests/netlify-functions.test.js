@@ -1,12 +1,25 @@
-const { test } = require('node:test');
+const { test, after } = require('node:test');
 const assert = require('node:assert');
-const { handler: stateHandler } = require('../netlify/functions/state');
-const { handler: submitHandler } = require('../netlify/functions/submit');
-const { handler: configHandler } = require('../netlify/functions/config');
-const { handler: qrHandler } = require('../netlify/functions/qr');
-const { handler: participantHandler } = require('../netlify/functions/participant');
-const { handler: adminHandler } = require('../netlify/functions/admin');
+const fs = require('fs');
+const os = require('os');
+const path = require('path');
+
+const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'halloween-netlify-'));
+process.env.HALLOWEEN_DATA_FILE = path.join(dataDir, 'state.json');
+
+const { adapt } = require('./helpers');
+const stateHandler = adapt(require('../netlify/functions/state').default);
+const submitHandler = adapt(require('../netlify/functions/submit').default);
+const configHandler = adapt(require('../netlify/functions/config').default);
+const qrHandler = adapt(require('../netlify/functions/qr').default);
+const participantHandler = adapt(require('../netlify/functions/participant').default);
+const adminHandler = adapt(require('../netlify/functions/admin').default);
+const inscriptionsHandler = adapt(require('../netlify/functions/inscriptions').default);
 const { clearQueue, loadRawState, saveRawState } = require('../netlify/functions/lib/store');
+
+after(() => {
+  fs.rmSync(dataDir, { recursive: true, force: true });
+});
 
 test('Netlify Functions: Config endpoint returns joinUrl and displaySeconds', async () => {
   const event = {
@@ -200,4 +213,60 @@ test('Netlify Functions: Full cycle with screen connection, queue FIFO, 15s time
   assert.strictEqual(screenState.status, 'qr');
   assert.strictEqual(screenState.active, null);
   assert.strictEqual(screenState.waiting, 0);
+});
+
+test('Netlify Functions: handlers use modern Request/Response exports', async () => {
+  const stateModule = require('../netlify/functions/state');
+  const configModule = require('../netlify/functions/config');
+
+  assert.strictEqual(typeof stateModule.default, 'function');
+  assert.strictEqual(stateModule.handler, undefined);
+  assert.strictEqual(typeof configModule.default, 'function');
+  assert.strictEqual(configModule.handler, undefined);
+
+  const response = await configModule.default(new Request('http://localhost/api/config'));
+  assert.ok(response instanceof Response);
+  assert.strictEqual(response.status, 200);
+  const data = await response.json();
+  assert.strictEqual(data.joinUrl, 'http://localhost/join');
+});
+
+test('Netlify Functions: inscriptions status is read-only and never advances the queue', async () => {
+  await clearQueue();
+  await submitHandler({
+    httpMethod: 'POST',
+    headers: { 'client-ip': '203.0.113.10' },
+    body: JSON.stringify({ name: 'SoloLectura' })
+  });
+  await stateHandler({ queryStringParameters: { role: 'screen' } });
+
+  const before = await loadRawState();
+  const res = await inscriptionsHandler({});
+  assert.strictEqual(res.statusCode, 200);
+  const data = JSON.parse(res.body);
+  assert.strictEqual(data.open, true);
+  assert.strictEqual(data.paused, false);
+
+  const afterState = await loadRawState();
+  assert.deepStrictEqual(afterState, before, 'Consultar inscripciones no debe modificar el estado');
+});
+
+test('Netlify Functions: concurrent registrations keep every participant', async () => {
+  await clearQueue();
+  const before = await loadRawState();
+  const total = 20;
+
+  const results = await Promise.all(
+    Array.from({ length: total }, (_, index) => submitHandler({
+      httpMethod: 'POST',
+      headers: { 'client-ip': `198.51.100.${index + 1}` },
+      body: JSON.stringify({ name: `Concurrente ${index}` })
+    }))
+  );
+
+  assert.ok(results.every((result) => result.statusCode === 200));
+  const state = await loadRawState();
+  assert.strictEqual(state.queue.length, total);
+  assert.strictEqual(new Set(state.queue.map((participant) => participant.name)).size, total);
+  assert.strictEqual(state.nextId, before.nextId + total);
 });

@@ -1,5 +1,12 @@
 const { test, before, after } = require('node:test');
 const assert = require('node:assert');
+const fs = require('fs');
+const os = require('os');
+const path = require('path');
+
+const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'halloween-server-'));
+process.env.HALLOWEEN_DATA_FILE = path.join(dataDir, 'state.json');
+
 const server = require('../server');
 
 let baseUrl = '';
@@ -16,6 +23,7 @@ before(async () => {
 
 after(async () => {
   await new Promise((resolve) => server.close(resolve));
+  fs.rmSync(dataDir, { recursive: true, force: true });
 });
 
 test('Integration: Serves index.html at /', async () => {

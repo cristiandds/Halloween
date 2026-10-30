@@ -1,7 +1,7 @@
 const { json, getBaseUrl } = require('./utils');
 
-exports.handler = async (event) => {
-  const baseUrl = getBaseUrl(event);
+exports.default = async (request) => {
+  const baseUrl = getBaseUrl(request);
   const joinUrl = baseUrl ? `${baseUrl}/join` : '/join';
   const displaySeconds = parseInt(process.env.DISPLAY_SECONDS || '15', 10);
   const eventName = process.env.EVENT_NAME || 'Halloween Ritual';

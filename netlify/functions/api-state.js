@@ -1,1 +1,1 @@
-module.exports = require('./state');
+exports.default = require('./state').default;

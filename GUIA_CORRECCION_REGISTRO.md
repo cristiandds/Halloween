@@ -34,8 +34,16 @@ un mensaje «EN PANTALLA» obsoleto.
 7. Si ves la versión anterior, actualiza con Ctrl+Shift+R o prueba en ventana privada.
 
 ## Notas de fiabilidad
-Esta corrección soluciona el bloqueo de la interfaz y sus estados obsoletos;
-no garantiza que Netlify Blobs nunca tenga problemas de sincronización.
-Si `/screen` no recibe nombres, revisa los logs de Netlify Functions y `/api/state`.
-El almacenamiento compartido de Blobs no ofrece transacciones para colas
-con muchos participantes simultáneos.
+Esta corrección soluciona el bloqueo de la interfaz y sus estados obsoletos.
+La conexión con Netlify Blobs se reparó aparte: las funciones ahora usan
+Netlify Functions v2 (runtime Node.js 22), sin `connectLambda`, y leen con
+consistencia fuerte usando el contexto `NETLIFY_BLOBS_CONTEXT`. Consulta
+`CORRECCION_NETLIFY.md` para el detalle del error
+`missing uncachedEdgeURL when reading with strong consistency`.
+
+Las escrituras usan ETag (`onlyIfNew` / `onlyIfMatch`) y se reintentan si otro
+registro simultáneo gana la carrera, de modo que dos celulares no se sobrescriben.
+Netlify Blobs no es una base de datos transaccional: en un pico extremo de
+escrituras una petición puede recibir un error claro para reintentar en lugar de
+confirmar un registro que no se guardó. Si `/screen` no recibe nombres, revisa
+los logs de Netlify Functions y `/api/state`.

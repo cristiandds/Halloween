@@ -72,7 +72,7 @@ Diseñado con **HTML5, CSS3 y JavaScript nativo**, optimizado para el plan **Net
 ## 🛠️ Instalación y Desarrollo Local
 
 ### Requisitos
-- Node.js 20 o superior.
+- Node.js 22 o superior (Netlify Functions v2 y `@netlify/blobs` v11 lo requieren).
 
 ### Pasos
 1. Clona el repositorio o abre la carpeta del proyecto.
@@ -115,7 +115,7 @@ El proyecto está 100 % configurado para publicarse en el plan gratuito de Netli
 
 ### Límites del Plan Gratuito (Netlify Free Tier)
 - **Netlify Functions:** 125,000 peticiones al mes y 100 horas de ejecución gratuitas.
-- **Netlify Blobs (Persistencia):** 100,000 lecturas/mes, 10,000 escrituras/mes y 5 GB de almacenamiento incluidos gratis sin tarjeta de crédito.
+- **Netlify Blobs (Persistencia):** 100,000 lecturas/mes, 10,000 escrituras/mes y 5 GB de almacenamiento incluidos gratis sin tarjeta de crédito. El proyecto usa Netlify Functions v2 y consistencia fuerte, por lo que el runtime debe ser Node.js 22 (`NODE_VERSION = "22"` en `netlify.toml`).
 - **Ancho de banda:** 100 GB mensuales.
 *Suficiente para cubrir con holgura múltiples fiestas y eventos con cientos de invitados escaneando al mismo tiempo.*
 

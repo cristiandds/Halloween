@@ -1,16 +1,16 @@
 const { getAndAdvanceState } = require('./lib/store');
-const { json } = require('./utils');
+const { json, getHeader, getSearchParams } = require('./utils');
 
-exports.handler = async (event) => {
+exports.default = async (request) => {
   try {
-    const query = event?.queryStringParameters || {};
-    const headers = event?.headers || {};
+    const query = getSearchParams(request);
     // Identify if the request comes from the projection screen
-    const isScreen = query.role === 'screen' || query.screen === '1' || headers['x-screen-role'] === 'screen';
+    const isScreen = query.get('role') === 'screen' ||
+      query.get('screen') === '1' ||
+      getHeader(request, 'x-screen-role') === 'screen';
 
     const { state, remainingMs, screenConnected } = await getAndAdvanceState({
-      isScreen,
-      event
+      isScreen
     });
 
     const isActive = Boolean(state.active);

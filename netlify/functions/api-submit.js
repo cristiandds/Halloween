@@ -1,1 +1,1 @@
-module.exports = require('./submit');
+exports.default = require('./submit').default;

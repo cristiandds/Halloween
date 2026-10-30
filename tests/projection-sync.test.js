@@ -1,9 +1,21 @@
-const { test } = require('node:test');
+const { test, after } = require('node:test');
 const assert = require('node:assert');
-const { handler: stateHandler } = require('../netlify/functions/state');
-const { handler: submitHandler } = require('../netlify/functions/submit');
-const { handler: participantHandler } = require('../netlify/functions/participant');
+const fs = require('fs');
+const os = require('os');
+const path = require('path');
+
+const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'halloween-projection-'));
+process.env.HALLOWEEN_DATA_FILE = path.join(dataDir, 'state.json');
+
+const { adapt } = require('./helpers');
+const stateHandler = adapt(require('../netlify/functions/state').default);
+const submitHandler = adapt(require('../netlify/functions/submit').default);
+const participantHandler = adapt(require('../netlify/functions/participant').default);
 const { clearQueue, loadRawState, saveRawState } = require('../netlify/functions/lib/store');
+
+after(() => {
+  fs.rmSync(dataDir, { recursive: true, force: true });
+});
 
 test('Escenario Realista de Proyección: Flujo completo de celulares y pantalla LED', async () => {
   await clearQueue();

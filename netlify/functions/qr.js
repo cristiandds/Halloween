@@ -1,9 +1,9 @@
 const QRCode = require('qrcode');
 const { json, getBaseUrl } = require('./utils');
 
-exports.handler = async (event) => {
+exports.default = async (request) => {
   try {
-    const baseUrl = getBaseUrl(event);
+    const baseUrl = getBaseUrl(request);
     const joinUrl = baseUrl ? `${baseUrl}/join` : '/join';
 
     // Generate high quality SVG QR code

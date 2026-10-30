@@ -1,1 +1,1 @@
-module.exports = require('./qr');
+exports.default = require('./qr').default;

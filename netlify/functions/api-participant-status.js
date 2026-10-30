@@ -1,1 +1,1 @@
-module.exports = require('./participant');
+exports.default = require('./participant').default;

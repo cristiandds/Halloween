@@ -21,20 +21,62 @@ const MIME_TYPES = {
   '.ttf': 'font/ttf'
 };
 
-// Route functions dynamically
+// Route functions dynamically. Netlify Functions v2 use a default export.
 const functionHandlers = {
-  '/api/state': require('./netlify/functions/state').handler,
-  '/api/submit': require('./netlify/functions/submit').handler,
-  '/api/config': require('./netlify/functions/config').handler,
-  '/api/qr': require('./netlify/functions/qr').handler,
-  '/api/inscriptions/status': require('./netlify/functions/inscriptions').handler,
-  '/api/inscriptions-status': require('./netlify/functions/inscriptions').handler,
-  '/api/participant/status': require('./netlify/functions/participant').handler,
-  '/api/participant-status': require('./netlify/functions/participant').handler,
-  '/api/admin': require('./netlify/functions/admin').handler
+  '/api/state': require('./netlify/functions/state').default,
+  '/api/submit': require('./netlify/functions/submit').default,
+  '/api/config': require('./netlify/functions/config').default,
+  '/api/qr': require('./netlify/functions/qr').default,
+  '/api/inscriptions/status': require('./netlify/functions/inscriptions').default,
+  '/api/inscriptions-status': require('./netlify/functions/inscriptions').default,
+  '/api/participant/status': require('./netlify/functions/participant').default,
+  '/api/participant-status': require('./netlify/functions/participant').default,
+  '/api/admin': require('./netlify/functions/admin').default
 };
 
-const adminHandler = require('./netlify/functions/admin').handler;
+const adminHandler = require('./netlify/functions/admin').default;
+
+function toWebRequest(req, bodyStr, parsedUrl) {
+  const headers = new Headers();
+  for (const [key, value] of Object.entries(req.headers)) {
+    if (value === undefined) continue;
+    if (Array.isArray(value)) {
+      value.forEach((item) => headers.append(key, item));
+    } else {
+      headers.set(key, value);
+    }
+  }
+
+  const init = {
+    method: req.method,
+    headers
+  };
+  if (req.method !== 'GET' && req.method !== 'HEAD' && bodyStr) {
+    init.body = bodyStr;
+  }
+
+  return new Request(parsedUrl.toString(), init);
+}
+
+async function sendWebResponse(res, response) {
+  const headers = {};
+  response.headers.forEach((value, key) => {
+    if (key.toLowerCase() !== 'set-cookie') {
+      headers[key] = value;
+    }
+  });
+
+  if (typeof response.headers.getSetCookie === 'function') {
+    const cookies = response.headers.getSetCookie();
+    if (cookies.length > 0) {
+      headers['set-cookie'] = cookies;
+    }
+  }
+
+  const buffer = Buffer.from(await response.arrayBuffer());
+  res.writeHead(response.status, headers);
+  res.end(buffer);
+}
 
 async function handleApi(req, res, parsedUrl) {
   let bodyStr = '';
@@ -56,25 +98,10 @@ async function handleApi(req, res, parsedUrl) {
       return;
     }
 
-    const queryObj = {};
-    for (const [key, value] of parsedUrl.searchParams.entries()) {
-      queryObj[key] = value;
-    }
-
-    const event = {
-      httpMethod: req.method,
-      path: pathname,
-      headers: req.headers,
-      queryStringParameters: queryObj,
-      body: bodyStr
-    };
-
     try {
-      const result = await handler(event, {});
-      const statusCode = result.statusCode || 200;
-      const headers = result.headers || {};
-      res.writeHead(statusCode, headers);
-      res.end(result.body || '');
+      const request = toWebRequest(req, bodyStr, parsedUrl);
+      const response = await handler(request, {});
+      await sendWebResponse(res, response);
     } catch (err) {
       console.error('Error invoking API handler:', err);
       res.writeHead(500, { 'Content-Type': 'application/json' });

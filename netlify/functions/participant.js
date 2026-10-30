@@ -1,16 +1,16 @@
 const { getParticipantStatus } = require('./lib/store');
-const { json } = require('./utils');
+const { json, getSearchParams } = require('./utils');
 
-exports.handler = async (event) => {
-  const query = event?.queryStringParameters || {};
-  const id = query.id || query.participantId;
+exports.default = async (request) => {
+  const query = getSearchParams(request);
+  const id = query.get('id') || query.get('participantId');
 
   if (!id) {
     return json(400, { error: 'Se requiere el parámetro "id".' });
   }
 
   try {
-    const status = await getParticipantStatus(id, event);
+    const status = await getParticipantStatus(id);
 
     if (!status.found) {
       return json(404, { error: 'No se encontró registro para este participante.' });

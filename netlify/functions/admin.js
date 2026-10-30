@@ -6,23 +6,27 @@ const {
   clearQueue,
   toggleInscriptions
 } = require('./lib/store');
-const { json, verifyAdmin, getAdminPassword } = require('./utils');
+const {
+  json,
+  getAdminPassword,
+  getPathname,
+  parseJsonBody,
+  verifyAdmin
+} = require('./utils');
 
-exports.handler = async (event) => {
-  if (event.httpMethod === 'OPTIONS') {
+exports.default = async (request) => {
+  if (request.method === 'OPTIONS') {
     return json(200, { ok: true });
   }
 
-  const path = event.path || '';
-  const action = path.split('/').filter(Boolean).pop() || '';
+  const pathname = getPathname(request);
+  const action = pathname.split('/').filter(Boolean).pop() || '';
+
+  const parsed = await parseJsonBody(request);
+  const body = parsed.ok && parsed.body && typeof parsed.body === 'object' ? parsed.body : {};
 
   // Login endpoint
-  if (action === 'login' && event.httpMethod === 'POST') {
-    let body = {};
-    try {
-      body = JSON.parse(event.body || '{}');
-    } catch (e) {}
-
+  if (action === 'login' && request.method === 'POST') {
     const password = body.password || '';
     const expected = getAdminPassword();
 
@@ -40,43 +44,40 @@ exports.handler = async (event) => {
   }
 
   // All other endpoints require admin auth
-  if (!verifyAdmin(event)) {
+  if (!verifyAdmin(request, body)) {
     return json(401, { error: 'No autorizado. Se requiere contraseña de administrador.' });
   }
 
   try {
     // Action routing
     if (action === 'pause' || action === 'queue-pause') {
-      const res = await pauseQueue(event);
+      const res = await pauseQueue();
       return json(200, res);
     }
 
     if (action === 'resume' || action === 'queue-resume') {
-      const res = await resumeQueue(event);
+      const res = await resumeQueue();
       return json(200, res);
     }
 
     if (action === 'next' || action === 'queue-next') {
-      const res = await nextParticipant(event);
+      const res = await nextParticipant();
       return json(200, res);
     }
 
     if (action === 'clear' || action === 'queue-clear' || action === 'empty') {
-      const res = await clearQueue(event);
+      const res = await clearQueue();
       return json(200, res);
     }
 
     if (action === 'toggle' || action === 'inscriptions-toggle') {
-      let body = {};
-      try { body = JSON.parse(event.body || '{}'); } catch (e) {}
-      const res = await toggleInscriptions(body.open, event);
+      const res = await toggleInscriptions(body.open);
       return json(200, res);
     }
 
     // Default: return full admin state
     const { state, remainingMs, screenConnected } = await getAndAdvanceState({
-      isScreen: false,
-      event
+      isScreen: false
     });
 
     return json(200, {

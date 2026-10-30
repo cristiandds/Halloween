@@ -1,1 +1,1 @@
-module.exports = require('./inscriptions');
+exports.default = require('./inscriptions').default;
