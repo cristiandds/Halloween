@@ -71,31 +71,32 @@ function getLocalFilePath() {
   }
 }
 
+/**
+ * Detect production Lambda/Netlify Functions. Files in /tmp are NOT shared
+ * between serverless instances and must never be used as production storage.
+ */
+function isNetlifyRuntime() {
+  return process.env.NETLIFY === 'true' ||
+    process.env.NETLIFY_DEV === 'true' ||
+    Boolean(process.env.NETLIFY_SITE_ID || process.env.SITE_ID || process.env.DEPLOY_ID || process.env.AWS_LAMBDA_FUNCTION_NAME);
+}
+
 function initBlobs(event = null) {
-  if (event && event.blobs) {
-    try {
-      const { connectLambda } = require('@netlify/blobs');
-      connectLambda(event);
-    } catch (e) {
-      // ignore
-    }
+  // Classic handler(event) = Lambda compatibility mode. The Blobs SDK requires
+  // connectLambda(event) to be called before every getStore operation.
+  if (!isNetlifyRuntime()) return;
+  if (!event) {
+    throw new Error('Netlify Blobs: falta el evento de la función Lambda.');
   }
+  const { connectLambda } = require('@netlify/blobs');
+  connectLambda(event);
 }
 
 function getBlobsStore(event = null) {
-  if (event) {
-    initBlobs(event);
-  }
-  try {
-    const { getStore } = require('@netlify/blobs');
-    // Enforce strong consistency for immediate read-after-write across serverless instances
-    return getStore({
-      name: 'halloween-queue',
-      consistency: 'strong'
-    });
-  } catch (err) {
-    return null;
-  }
+  if (!isNetlifyRuntime()) return null;
+  initBlobs(event);
+  const { getStore } = require('@netlify/blobs');
+  return getStore({ name: 'halloween-queue', consistency: 'strong' });
 }
 
 function createDefaultState() {
@@ -143,57 +144,53 @@ function sanitizeLoadedState(raw) {
 }
 
 async function loadRawState(event = null) {
-  const store = getBlobsStore(event);
-  if (store) {
+  if (isNetlifyRuntime()) {
+    // Fail visibly instead of silently reading an unrelated instance's /tmp.
     try {
+      const store = getBlobsStore(event);
       const data = await store.get('event-state', { type: 'json', consistency: 'strong' });
-      if (data && typeof data === 'object') {
-        return sanitizeLoadedState(data);
-      }
+      return data && typeof data === 'object' ? sanitizeLoadedState(data) : createDefaultState();
     } catch (err) {
-      // Blobs failed or not configured, fallback to file
+      console.error('[Halloween/Blobs] Error al LEER estado compartido:', err);
+      throw new Error('Almacenamiento compartido no disponible: verifica Netlify Blobs y Functions logs.');
     }
   }
 
-  // Local file fallback
+  // Only local development may use a local file.
   try {
     const filePath = getLocalFilePath();
     if (fs.existsSync(filePath)) {
-      const content = fs.readFileSync(filePath, 'utf8');
-      const data = JSON.parse(content);
+      const data = JSON.parse(fs.readFileSync(filePath, 'utf8'));
       return sanitizeLoadedState(data);
     }
   } catch (err) {
-    // ignore
+    console.warn('[Halloween/local] No se pudo leer el archivo local:', err.message);
   }
-
   return createDefaultState();
 }
 
 async function saveRawState(state, event = null) {
   state.updatedAt = Date.now();
-  const store = getBlobsStore(event);
-  let savedToBlobs = false;
-
-  if (store) {
+  if (isNetlifyRuntime()) {
     try {
+      const store = getBlobsStore(event);
       await store.setJSON('event-state', state);
-      savedToBlobs = true;
+      return;
     } catch (err) {
-      // Blobs save failed, fallback to file
+      console.error('[Halloween/Blobs] Error al GUARDAR estado compartido:', err);
+      throw new Error('No se pudo guardar en el almacenamiento compartido. Registro cancelado.');
     }
   }
 
-  // Always write to local file as well for resilience / local dev
+  // Local-only persistence for Node.js dev/tests.
+  const filePath = getLocalFilePath();
   try {
-    const filePath = getLocalFilePath();
-    const tempPath = `${filePath}.tmp.${Date.now()}`;
+    const tempPath = `${filePath}.tmp.${process.pid}.${Date.now()}`;
     fs.writeFileSync(tempPath, JSON.stringify(state, null, 2), 'utf8');
     fs.renameSync(tempPath, filePath);
   } catch (err) {
-    if (!savedToBlobs) {
-      console.error('Failed to save state to both Blobs and file:', err.message);
-    }
+    console.error('[Halloween/local] No se pudo persistir estado:', err);
+    throw err;
   }
 }
 
